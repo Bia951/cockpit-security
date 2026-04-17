@@ -1,52 +1,26 @@
 #!/usr/bin/env node
 
-import { cp, mkdir, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { cp, mkdir, readdir, watch as watchFs, writeFile } from "node:fs/promises";
 import process from "node:process";
-
-const require = createRequire(import.meta.url);
-const esbuild = await import(require.resolve("esbuild"));
 
 const outdir = "dist";
 const watch = process.argv.includes("-w") || process.argv.includes("--watch");
-const production = process.env.NODE_ENV === "production";
+let rebuildTimer = null;
 
-async function copyAssets() {
+async function copyFiles() {
     await mkdir(outdir, { recursive: true });
-    await cp("src/index.html", `${outdir}/index.html`);
-    await cp("src/index.css", `${outdir}/index.css`);
-    await cp("src/manifest.json", `${outdir}/manifest.json`);
+    await cp("src", outdir, { recursive: true });
 }
-
-const context = await esbuild.context({
-    bundle: true,
-    entryPoints: ["./src/index.js"],
-    format: "iife",
-    legalComments: "external",
-    metafile: true,
-    minify: production,
-    outfile: `${outdir}/index.js`,
-    plugins: [
-        {
-            name: "copy-assets",
-            setup(build) {
-                build.onEnd(async result => {
-                    if (result.errors.length > 0)
-                        return;
-
-                    await copyAssets();
-                    await writeFile("metafile.json", JSON.stringify(result.metafile, null, 2));
-                });
-            },
-        },
-    ],
-    sourcemap: production ? false : "linked",
-    target: ["es2020"],
-});
 
 async function build() {
     const start = Date.now();
-    await context.rebuild();
+    const copied = await readdir("src");
+    await copyFiles();
+    await writeFile("metafile.json", JSON.stringify({
+        copied: copied.sort(),
+        outdir,
+        timestamp: new Date().toISOString(),
+    }, null, 2));
     console.log(`Build finished in ${Date.now() - start} ms`);
 }
 
@@ -54,14 +28,27 @@ try {
     await build();
 } catch (error) {
     console.error(error);
-    await context.dispose();
     process.exit(1);
 }
 
+function queueBuild() {
+    if (rebuildTimer)
+        clearTimeout(rebuildTimer);
+
+    rebuildTimer = setTimeout(async () => {
+        try {
+            await build();
+        } catch (error) {
+            console.error("Rebuild failed:", error);
+        }
+    }, 120);
+}
+
 if (watch) {
-    await context.watch();
     console.log("Watching for changes...");
     process.stdin.resume();
-} else {
-    await context.dispose();
+    const watcher = watchFs("src", { recursive: true });
+
+    for await (const _event of watcher)
+        queueBuild();
 }

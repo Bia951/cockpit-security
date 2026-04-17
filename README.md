@@ -19,15 +19,15 @@ The current UI adds a new “安全” entry in Cockpit with two areas:
 
 On Debian/Ubuntu:
 
-    sudo apt install nodejs npm make
+    sudo apt install nodejs make
 
 On Fedora:
 
-    sudo dnf install nodejs npm make
+    sudo dnf install nodejs make
 
 On openSUSE Tumbleweed and Leap:
 
-    sudo zypper in nodejs npm make
+    sudo zypper in nodejs make
 
 # Getting and building the source
 
@@ -36,14 +36,14 @@ These commands check out the source and build it into the `dist/` directory:
 ```sh
 git clone https://github.com/Bia951/cockpit-security.git
 cd cockpit-security
-npm install
 make build
 ```
 
-The build is intentionally simple:
+The build chain is intentionally simple and does not rely on npm:
 
-- `src/index.js` is bundled into `dist/index.js`
-- `src/index.html`, `src/index.css`, and `src/manifest.json` are copied into `dist/`
+- `node build.js` copies the package files from `src/` into `dist/`
+- `make build` is a thin wrapper around that command
+- `make watch` watches `src/` and rebuilds on change
 
 # Installing
 
@@ -94,7 +94,6 @@ The repository is organized like this:
 ├── dist/
 ├── build.js
 ├── Makefile
-├── package.json
 └── README.md
 ```
 
@@ -117,6 +116,7 @@ The repository is organized like this:
 - If the target host does not have `ufw`, `iptables`, or `fail2ban-client`, the command error is shown directly in the UI.
 - The current iptables integration only changes runtime rules; it does not persist them across reboots.
 - This repository currently ships a lightweight build chain. It does not yet reintroduce the full starter-kit packaging, translation, and CI stack.
+- The current build only needs `node` and `make`; it intentionally avoids npm because the plugin is plain HTML/CSS/JS without a frontend dependency graph.
 
 # Further reading
 

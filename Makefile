@@ -8,10 +8,10 @@ LOCALDIR = $(HOME)/.local/share/cockpit/$(PACKAGE)
 .PHONY: build install devel-install devel-uninstall clean watch
 
 build:
-	npm run build
+	node ./build.js
 
 watch:
-	npm run watch
+	node ./build.js -w
 
 install: build
 	mkdir -p "$(COCKPITDIR)"
