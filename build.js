@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-import { cp, mkdir, readdir, watch as watchFs, writeFile } from "node:fs/promises";
-import process from "node:process";
+const { cp, mkdir, readdir, watch, writeFile } = require("node:fs/promises");
 
 const outdir = "dist";
-const watch = process.argv.includes("-w") || process.argv.includes("--watch");
+const watchMode = process.argv.includes("-w") || process.argv.includes("--watch");
 let rebuildTimer = null;
 
 async function copyFiles() {
@@ -24,13 +23,6 @@ async function build() {
     console.log(`Build finished in ${Date.now() - start} ms`);
 }
 
-try {
-    await build();
-} catch (error) {
-    console.error(error);
-    process.exit(1);
-}
-
 function queueBuild() {
     if (rebuildTimer)
         clearTimeout(rebuildTimer);
@@ -44,11 +36,21 @@ function queueBuild() {
     }, 120);
 }
 
-if (watch) {
+async function main() {
+    await build();
+
+    if (!watchMode)
+        return;
+
     console.log("Watching for changes...");
     process.stdin.resume();
-    const watcher = watchFs("src", { recursive: true });
+    const watcher = watch("src", { recursive: true });
 
     for await (const _event of watcher)
         queueBuild();
 }
+
+main().catch(error => {
+    console.error(error);
+    process.exit(1);
+});
