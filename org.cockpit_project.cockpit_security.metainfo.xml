@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="addon">
+  <id>org.cockpit_project.cockpit_security</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <name>Cockpit Security</name>
+  <summary>Firewall and Fail2Ban tooling for Cockpit</summary>
+  <description>
+    <p>
+      Cockpit Security adds a simple security-focused tool page to Cockpit.
+      It currently provides firewall operations for UFW and iptables, along
+      with common Fail2Ban inspection and control actions.
+    </p>
+  </description>
+  <extends>org.cockpit_project.cockpit</extends>
+  <launchable type="cockpit-manifest">cockpit-security</launchable>
+  <url type="homepage">https://github.com/Bia951/cockpit-security</url>
+  <url type="bugtracker">https://github.com/Bia951/cockpit-security/issues</url>
+  <update_contact>bia951_AT_users.noreply.github.com</update_contact>
+  <developer id="org.cockpit-security">
+    <name>Cockpit Security</name>
+  </developer>
+</component>

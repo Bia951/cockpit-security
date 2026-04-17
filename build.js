@@ -1,189 +1,67 @@
 #!/usr/bin/env node
 
-import fs from 'node:fs';
-import { createRequire } from 'node:module';
-import os from 'node:os';
-import path from 'node:path';
-import process from 'node:process';
+import { cp, mkdir, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import process from "node:process";
 
-import { sassPlugin } from 'esbuild-sass-plugin';
+const require = createRequire(import.meta.url);
+const esbuild = await import(require.resolve("esbuild"));
 
-import { cockpitPoEsbuildPlugin } from './pkg/lib/cockpit-po-plugin.js';
-import { cockpitRsyncEsbuildPlugin } from './pkg/lib/cockpit-rsync-plugin.js';
-import { cleanPlugin } from './pkg/lib/esbuild-cleanup-plugin.js';
-import { cockpitCompressPlugin } from './pkg/lib/esbuild-compress-plugin.js';
+const outdir = "dist";
+const watch = process.argv.includes("-w") || process.argv.includes("--watch");
+const production = process.env.NODE_ENV === "production";
 
-const useWasm = os.arch() !== 'x64';
-
-const esbuild = await (async () => {
-    try {
-        // Try node_modules first for installs with devDependencies
-        return (await import(useWasm ? 'esbuild-wasm' : 'esbuild')).default;
-    } catch (e) {
-        if (e.code !== 'ERR_MODULE_NOT_FOUND')
-            throw e;
-
-        // Fall back to distro package (e.g. Debian's /usr/lib/*/nodejs/esbuild)
-        // Use createRequire to leverage Node's module resolution which searches system paths
-        // Use require.resolve to find esbuild in system paths, then import it
-        const require = createRequire(import.meta.url);
-        return (await import(require.resolve('esbuild'))).default;
-    }
-})();
-
-const production = process.env.NODE_ENV === 'production';
-// List of directories to use when using import statements
-const nodePaths = ['pkg/lib'];
-const outdir = 'dist';
-
-// Obtain package name from package.json
-const packageJson = JSON.parse(fs.readFileSync('package.json'));
-
-const parser = (await import('argparse')).default.ArgumentParser();
-/* eslint-disable max-len */
-parser.add_argument('-r', '--rsync', { help: "rsync bundles to ssh target after build", metavar: "HOST" });
-parser.add_argument('-w', '--watch', { action: 'store_true', help: "Enable watch mode", default: process.env.ESBUILD_WATCH === "true" });
-/* eslint-enable max-len */
-const args = parser.parse_args();
-
-if (args.rsync)
-    process.env.RSYNC = args.rsync;
-
-function notifyEndPlugin() {
-    return {
-        name: 'notify-end',
-        setup(build) {
-            let startTime;
-
-            build.onStart(() => {
-                startTime = new Date();
-            });
-
-            build.onEnd(() => {
-                const endTime = new Date();
-                const timeStamp = endTime.toTimeString().split(' ')[0];
-                console.log(`${timeStamp}: Build finished in ${endTime - startTime} ms`);
-            });
-        }
-    };
-}
-
-// similar to fs.watch(), but recursively watches all subdirectories
-function watch_dirs(dir, on_change) {
-    const callback = (ev, dir, fname) => {
-        // only listen for "change" events, as renames are noisy
-        // ignore hidden files
-        if (ev !== "change" || fname.startsWith('.')) {
-            return;
-        }
-        on_change(path.join(dir, fname));
-    };
-
-    fs.watch(dir, {}, (ev, path) => callback(ev, dir, path));
-
-    // watch all subdirectories in dir
-    const d = fs.opendirSync(dir);
-    let dirent;
-
-    while ((dirent = d.readSync()) !== null) {
-        if (dirent.isDirectory())
-            watch_dirs(path.join(dir, dirent.name), on_change);
-    }
-    d.closeSync();
+async function copyAssets() {
+    await mkdir(outdir, { recursive: true });
+    await cp("src/index.html", `${outdir}/index.html`);
+    await cp("src/index.css", `${outdir}/index.css`);
+    await cp("src/manifest.json", `${outdir}/manifest.json`);
 }
 
 const context = await esbuild.context({
-    ...!production ? { sourcemap: "linked" } : {},
     bundle: true,
-    entryPoints: ['./src/index.js'],
-    // Allow external font files which live in ../../static/fonts
-    external: ['*.woff', '*.woff2', '*.jpg', '*.svg', '../../assets*'],
-    // Move all legal comments to a .LEGAL.txt file
-    legalComments: 'external',
-    loader: { ".js": "jsx", ".py": "text" },
-    minify: production,
-    nodePaths,
-    outdir,
+    entryPoints: ["./src/index.js"],
+    format: "iife",
+    legalComments: "external",
     metafile: true,
-    target: ['es2020'],
+    minify: production,
+    outfile: `${outdir}/index.js`,
     plugins: [
-        cleanPlugin(),
-        // Esbuild will only copy assets that are explicitly imported and used in the code.
-        // Copy the other files here.
         {
-            name: 'copy-assets',
+            name: "copy-assets",
             setup(build) {
-                build.onEnd((output, _outputFiles) => {
-                    if (output?.errors.length === 0) {
-                        fs.copyFileSync('./src/manifest.json', './dist/manifest.json');
-                        fs.copyFileSync('./src/index.html', './dist/index.html');
-                    }
+                build.onEnd(async result => {
+                    if (result.errors.length > 0)
+                        return;
+
+                    await copyAssets();
+                    await writeFile("metafile.json", JSON.stringify(result.metafile, null, 2));
                 });
-            }
+            },
         },
-
-        sassPlugin({
-            loadPaths: [...nodePaths, 'node_modules'],
-            filter: /\.scss/,
-            quietDeps: true,
-        }),
-
-        cockpitPoEsbuildPlugin(),
-        ...production ? [cockpitCompressPlugin()] : [],
-        cockpitRsyncEsbuildPlugin({ dest: packageJson.name }),
-        notifyEndPlugin(),
-    ]
+    ],
+    sourcemap: production ? false : "linked",
+    target: ["es2020"],
 });
 
+async function build() {
+    const start = Date.now();
+    await context.rebuild();
+    console.log(`Build finished in ${Date.now() - start} ms`);
+}
+
 try {
-    const result = await context.rebuild();
-
-    // skip metafile and runtime module calculation in watch mode
-    if (!args.watch) {
-        fs.writeFileSync('metafile.json', JSON.stringify(result.metafile));
-
-        // Extract bundled npm packages for dependency tracking
-        const bundledPackages = new Set();
-        for (const inputPath of Object.keys(result.metafile.inputs)) {
-            // Match paths like node_modules/package-name/ or node_modules/@scope/package-name/
-            const match = inputPath.match(/^node_modules\/(@[^/]+\/[^/]+|[^/]+)\//);
-            if (match)
-                bundledPackages.add(match[1]);
-        }
-
-        // Look up versions from package-lock.json and output simple format
-        const packageLock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
-        const deps = [];
-        for (const pkgName of Array.from(bundledPackages).sort()) {
-            const lockKey = `node_modules/${pkgName}`;
-            const pkgInfo = packageLock.packages?.[lockKey];
-            if (pkgInfo?.version)
-                deps.push(`${pkgName} ${pkgInfo.version}`);
-            else
-                console.error(`Warning: Could not find version for ${pkgName}`);
-        }
-        fs.writeFileSync('runtime-npm-modules.txt', deps.join('\n') + '\n');
-    }
-} catch (e) {
-    if (!args.watch)
-        process.exit(1);
-    // ignore errors in watch mode
+    await build();
+} catch (error) {
+    console.error(error);
+    await context.dispose();
+    process.exit(1);
 }
 
-if (args.watch) {
-    const on_change = async path => {
-        console.log("change detected:", path);
-        await context.cancel();
-
-        try {
-            await context.rebuild();
-        } catch (e) {} // ignore in watch mode
-    };
-
-    watch_dirs('src', on_change);
-
-    // wait forever until Control-C
-    await new Promise(() => {});
+if (watch) {
+    await context.watch();
+    console.log("Watching for changes...");
+    process.stdin.resume();
+} else {
+    await context.dispose();
 }
-
-context.dispose();

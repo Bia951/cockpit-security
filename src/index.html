@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Cockpit 安全管理插件">
+    <title>安全</title>
+    <link rel="stylesheet" href="index.css">
+    <link href="../../static/branding.css" rel="stylesheet">
+    <script src="../base1/cockpit.js"></script>
+    <script src="index.js" defer></script>
+</head>
+<body>
+    <div class="page-shell">
+        <header class="hero">
+            <div>
+                <p class="eyebrow">Cockpit Security</p>
+                <h1>安全</h1>
+                <p class="hero-copy">把最常用的安全操作收拢到一个 Cockpit 页面里：防火墙和 Fail2Ban，先追求能用、可刷新、错误可见。</p>
+            </div>
+            <button class="ghost-button" id="refresh-all" type="button">刷新全部</button>
+        </header>
+
+        <nav class="primary-tabs" aria-label="安全分类">
+            <button class="tab-button active" data-tab="firewall" type="button">防火墙</button>
+            <button class="tab-button" data-tab="fail2ban" type="button">Fail2Ban</button>
+        </nav>
+
+        <main>
+            <section class="tab-panel active" data-panel="firewall">
+                <div class="section-header">
+                    <div>
+                        <h2>防火墙</h2>
+                        <p>支持在 UFW 和 iptables 之间切换，直接执行常见状态查看和规则操作。</p>
+                    </div>
+                    <div class="inline-actions">
+                        <button class="ghost-button" id="firewall-refresh" type="button">刷新状态</button>
+                    </div>
+                </div>
+
+                <div class="backend-switch" aria-label="防火墙后端">
+                    <button class="backend-button active" data-backend="ufw" type="button">UFW</button>
+                    <button class="backend-button" data-backend="iptables" type="button">iptables</button>
+                </div>
+
+                <div class="layout-grid">
+                    <section class="panel">
+                        <div class="panel-header">
+                            <h3>当前状态</h3>
+                            <span class="badge" id="firewall-backend-label">UFW</span>
+                        </div>
+                        <pre class="terminal-output" id="firewall-status">正在加载防火墙状态...</pre>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-header">
+                            <h3>最近执行结果</h3>
+                            <span class="badge" id="firewall-command-label">等待操作</span>
+                        </div>
+                        <pre class="terminal-output" id="firewall-result">点击按钮后，这里会显示命令输出或错误信息。</pre>
+                    </section>
+                </div>
+
+                <section class="panel backend-panel active" data-backend-panel="ufw">
+                    <div class="panel-header">
+                        <h3>UFW 操作</h3>
+                        <span class="muted">适合 Debian / Ubuntu 一类主机</span>
+                    </div>
+
+                    <div class="button-row">
+                        <button class="accent-button" data-action="ufw-status" type="button">状态</button>
+                        <button class="ghost-button" data-action="ufw-enable" type="button">启用</button>
+                        <button class="ghost-button" data-action="ufw-disable" type="button">禁用</button>
+                        <button class="ghost-button" data-action="ufw-reload" type="button">重新加载</button>
+                    </div>
+
+                    <form class="form-card" id="ufw-add-form">
+                        <h4>添加规则</h4>
+                        <div class="form-grid">
+                            <label>
+                                动作
+                                <select name="action">
+                                    <option value="allow">allow</option>
+                                    <option value="deny">deny</option>
+                                    <option value="reject">reject</option>
+                                </select>
+                            </label>
+                            <label>
+                                端口
+                                <input name="port" placeholder="22" required>
+                            </label>
+                            <label>
+                                协议
+                                <select name="protocol">
+                                    <option value="tcp">tcp</option>
+                                    <option value="udp">udp</option>
+                                </select>
+                            </label>
+                            <label>
+                                来源 IP/CIDR
+                                <input name="source" placeholder="留空表示任意来源">
+                            </label>
+                        </div>
+                        <div class="inline-actions">
+                            <button class="accent-button" type="submit">执行添加</button>
+                        </div>
+                    </form>
+
+                    <form class="form-card" id="ufw-delete-form">
+                        <h4>按编号删除</h4>
+                        <div class="form-grid compact-grid">
+                            <label>
+                                规则编号
+                                <input name="number" placeholder="1" required>
+                            </label>
+                        </div>
+                        <div class="inline-actions">
+                            <button class="danger-button" type="submit">删除规则</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="panel backend-panel" data-backend-panel="iptables">
+                    <div class="panel-header">
+                        <h3>iptables 操作</h3>
+                        <span class="muted">默认操作 INPUT 链</span>
+                    </div>
+
+                    <div class="button-row">
+                        <button class="accent-button" data-action="iptables-status" type="button">状态</button>
+                    </div>
+
+                    <form class="form-card" id="iptables-add-form">
+                        <h4>向 INPUT 链插入规则</h4>
+                        <div class="form-grid">
+                            <label>
+                                动作
+                                <select name="action">
+                                    <option value="ACCEPT">ACCEPT</option>
+                                    <option value="DROP">DROP</option>
+                                    <option value="REJECT">REJECT</option>
+                                </select>
+                            </label>
+                            <label>
+                                端口
+                                <input name="port" placeholder="22" required>
+                            </label>
+                            <label>
+                                协议
+                                <select name="protocol">
+                                    <option value="tcp">tcp</option>
+                                    <option value="udp">udp</option>
+                                </select>
+                            </label>
+                            <label>
+                                来源 IP/CIDR
+                                <input name="source" placeholder="留空表示任意来源">
+                            </label>
+                        </div>
+                        <div class="inline-actions">
+                            <button class="accent-button" type="submit">插入规则</button>
+                        </div>
+                    </form>
+
+                    <form class="form-card" id="iptables-delete-form">
+                        <h4>按行号删除</h4>
+                        <div class="form-grid compact-grid">
+                            <label>
+                                INPUT 链行号
+                                <input name="line" placeholder="1" required>
+                            </label>
+                        </div>
+                        <div class="inline-actions">
+                            <button class="danger-button" type="submit">删除规则</button>
+                        </div>
+                    </form>
+                </section>
+            </section>
+
+            <section class="tab-panel" data-panel="fail2ban">
+                <div class="section-header">
+                    <div>
+                        <h2>Fail2Ban</h2>
+                        <p>围绕服务状态、jail 状态和解封操作做最小可用控制。</p>
+                    </div>
+                    <div class="inline-actions">
+                        <button class="ghost-button" id="fail2ban-refresh" type="button">刷新状态</button>
+                    </div>
+                </div>
+
+                <div class="layout-grid">
+                    <section class="panel">
+                        <div class="panel-header">
+                            <h3>服务与总体状态</h3>
+                            <span class="badge">fail2ban-client</span>
+                        </div>
+                        <pre class="terminal-output" id="fail2ban-status">正在加载 Fail2Ban 状态...</pre>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-header">
+                            <h3>最近执行结果</h3>
+                            <span class="badge" id="fail2ban-command-label">等待操作</span>
+                        </div>
+                        <pre class="terminal-output" id="fail2ban-result">点击按钮后，这里会显示命令输出或错误信息。</pre>
+                    </section>
+                </div>
+
+                <section class="panel">
+                    <div class="panel-header">
+                        <h3>服务操作</h3>
+                        <span class="muted">默认操作 fail2ban.service</span>
+                    </div>
+                    <div class="button-row">
+                        <button class="accent-button" data-action="fail2ban-status" type="button">总体状态</button>
+                        <button class="ghost-button" data-action="fail2ban-start" type="button">启动服务</button>
+                        <button class="ghost-button" data-action="fail2ban-stop" type="button">停止服务</button>
+                        <button class="ghost-button" data-action="fail2ban-restart" type="button">重启服务</button>
+                        <button class="ghost-button" data-action="fail2ban-reload" type="button">重新加载配置</button>
+                    </div>
+                </section>
+
+                <section class="panel dual-panel">
+                    <form class="form-card" id="fail2ban-jail-form">
+                        <h4>查看单个 jail</h4>
+                        <div class="form-grid compact-grid">
+                            <label>
+                                jail 名称
+                                <input name="jail" placeholder="sshd" required>
+                            </label>
+                        </div>
+                        <div class="inline-actions">
+                            <button class="accent-button" type="submit">查看 jail 状态</button>
+                        </div>
+                    </form>
+
+                    <form class="form-card" id="fail2ban-unban-form">
+                        <h4>解封 IP</h4>
+                        <div class="form-grid compact-grid">
+                            <label>
+                                jail 名称
+                                <input name="jail" placeholder="sshd" required>
+                            </label>
+                            <label>
+                                IP 地址
+                                <input name="ip" placeholder="203.0.113.5" required>
+                            </label>
+                        </div>
+                        <div class="inline-actions">
+                            <button class="danger-button" type="submit">执行解封</button>
+                        </div>
+                    </form>
+                </section>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

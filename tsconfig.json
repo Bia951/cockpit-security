@@ -2,15 +2,10 @@
   "compilerOptions": {
     "allowJs": true,
     "checkJs": true,
-    "exactOptionalPropertyTypes": true,
-    "jsx": "react",
     "lib": [
       "dom",
       "es2020"
     ],
-    "paths": {
-        "*": ["./pkg/lib/*"]
-    },
     "moduleResolution": "bundler",
     "noEmit": true,
     "strict": true,
