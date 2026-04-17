@@ -1,0 +1,27 @@
+{
+  "name": "security",
+  "version": 0,
+  "requires": {
+    "cockpit": "137"
+  },
+  "menu": {
+    "index": {
+      "label": "安全",
+      "path": "index.html",
+      "order": 75,
+      "keywords": [
+        {
+          "matches": [
+            "security",
+            "firewall",
+            "ufw",
+            "iptables",
+            "fail2ban",
+            "安全",
+            "防火墙"
+          ]
+        }
+      ]
+    }
+  }
+}
