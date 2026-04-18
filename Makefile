@@ -1,4 +1,4 @@
-PACKAGE = cockpit-security
+PACKAGE = security
 DISTDIR = dist
 DESTDIR ?=
 PREFIX ?= /usr/local

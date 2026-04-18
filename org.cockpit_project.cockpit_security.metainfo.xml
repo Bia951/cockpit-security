@@ -12,7 +12,7 @@
     </p>
   </description>
   <extends>org.cockpit_project.cockpit</extends>
-  <launchable type="cockpit-manifest">cockpit-security</launchable>
+  <launchable type="cockpit-manifest">security</launchable>
   <url type="homepage">https://github.com/Bia951/cockpit-security</url>
   <url type="bugtracker">https://github.com/Bia951/cockpit-security/issues</url>
   <update_contact>bia951_AT_users.noreply.github.com</update_contact>

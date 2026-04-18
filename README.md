@@ -47,7 +47,7 @@ The build chain is intentionally simple and does not rely on npm:
 
 # Installing
 
-`make install` builds the plugin and installs it to `/usr/local/share/cockpit/cockpit-security/`:
+`make install` builds the plugin and installs it to `/usr/local/share/cockpit/security/`:
 
 ```sh
 make install
@@ -63,7 +63,7 @@ This links `dist/` into Cockpit’s local package directory. If you prefer to do
 
 ```sh
 mkdir -p ~/.local/share/cockpit
-ln -s "$(pwd)/dist" ~/.local/share/cockpit/cockpit-security
+ln -s "$(pwd)/dist" ~/.local/share/cockpit/security
 ```
 
 After changing the code and rebuilding, reload the Cockpit page in your browser.
