@@ -14,7 +14,6 @@ const state = {
         fail2ban: 0,
     },
     superuserAllowed: null,
-    superuserConfigured: null,
     superuserProxy: null,
     superuserPermission: null,
 };
@@ -152,20 +151,9 @@ function computeSuperuserAllowed() {
     return state.superuserProxy.Current !== "none";
 }
 
-function computeSuperuserConfigured() {
-    if (!state.superuserProxy)
-        return null;
-
-    if (state.superuserProxy.Current === "init")
-        return null;
-
-    return (state.superuserProxy.Bridges?.length ?? 0) > 0;
-}
-
 function renderAccessState() {
     const pageContent = document.querySelector(".page-content");
     const title = getElement("security-access-title");
-    const copy = getElement("security-access-copy");
 
     if (state.superuserAllowed === true) {
         setHidden("security-access-panel", true);
@@ -180,28 +168,20 @@ function renderAccessState() {
     if (pageContent)
         pageContent.hidden = true;
 
-    if (!title || !copy)
+    if (!title)
         return;
 
     if (state.superuserAllowed === null) {
-        title.textContent = "正在检查管理员访问...";
-        copy.textContent = "页面会在确认权限状态后自动加载。";
+        title.textContent = "正在加载...";
         return;
     }
 
     title.textContent = "需要管理员权限";
-    if (state.superuserConfigured === false) {
-        copy.textContent = "当前 Web 控制台处于受限访问模式，且这台主机没有可用的管理员提权方式。请使用具备管理员权限的会话重新进入后再查看安全状态。";
-        return;
-    }
-
-    copy.textContent = "当前 Web 控制台正以受限访问模式运行。请先使用 Cockpit 统一的管理员访问入口完成认证，然后返回此页面查看和管理防火墙与 Fail2Ban。";
 }
 
-function handleSuperuserStateChange(nextAllowed, configured = computeSuperuserConfigured()) {
+function handleSuperuserStateChange(nextAllowed) {
     const previous = state.superuserAllowed;
     state.superuserAllowed = nextAllowed;
-    state.superuserConfigured = configured;
     renderAccessState();
 
     if (previous !== nextAllowed && nextAllowed === true)
@@ -217,9 +197,8 @@ function initSuperuser() {
     state.superuserProxy.wait(() => {
         if (!state.superuserProxy.valid) {
             state.superuserPermission = cockpit.permission({ admin: true });
-            state.superuserConfigured = false;
             const updatePermission = () => {
-                handleSuperuserStateChange(state.superuserPermission.allowed, false);
+                handleSuperuserStateChange(state.superuserPermission.allowed);
             };
             state.superuserPermission.addEventListener("changed", updatePermission);
             updatePermission();
