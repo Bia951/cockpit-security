@@ -24,9 +24,6 @@
                 <span class="access-icon" aria-hidden="true">&#128274;</span>
                 <h2 class="access-title" id="security-access-title">正在检查管理员访问...</h2>
                 <p class="access-copy" id="security-access-copy">页面会在确认权限状态后自动加载。</p>
-                <div class="access-actions">
-                    <button class="primary-button" id="security-superuser-button" type="button" hidden>开启管理员访问</button>
-                </div>
             </div>
         </section>
 
@@ -343,32 +340,6 @@
                 </section>
             </section>
         </main>
-    </div>
-
-    <div class="modal-scrim" id="superuser-modal" hidden>
-        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="superuser-modal-title">
-            <div class="modal-header">
-                <h2 id="superuser-modal-title">开启管理员访问</h2>
-            </div>
-            <div class="modal-body">
-                <p class="modal-copy" id="superuser-modal-message">正在检查可用的管理员访问方式...</p>
-                <div class="modal-alert" id="superuser-modal-error" hidden></div>
-                <label class="modal-field" id="superuser-method-field" hidden>
-                    认证方式
-                    <select id="superuser-method-select"></select>
-                </label>
-                <form class="modal-field" id="superuser-prompt-form" hidden>
-                    <label>
-                        <span id="superuser-prompt-label">密码</span>
-                        <input id="superuser-prompt-input" type="password" autocomplete="current-password">
-                    </label>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button class="primary-button" id="superuser-submit" type="button">认证</button>
-                <button class="secondary-button" id="superuser-cancel" type="button">取消</button>
-            </div>
-        </div>
     </div>
 </body>
 </html>

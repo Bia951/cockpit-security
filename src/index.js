@@ -17,7 +17,6 @@ const state = {
     superuserConfigured: null,
     superuserProxy: null,
     superuserPermission: null,
-    superuserPromptHandler: null,
 };
 
 const SERVICE_LINKS = {
@@ -167,7 +166,6 @@ function renderAccessState() {
     const pageContent = document.querySelector(".page-content");
     const title = getElement("security-access-title");
     const copy = getElement("security-access-copy");
-    const button = getElement("security-superuser-button");
 
     if (state.superuserAllowed === true) {
         setHidden("security-access-panel", true);
@@ -182,25 +180,22 @@ function renderAccessState() {
     if (pageContent)
         pageContent.hidden = true;
 
-    if (!title || !copy || !button)
+    if (!title || !copy)
         return;
 
     if (state.superuserAllowed === null) {
         title.textContent = "正在检查管理员访问...";
         copy.textContent = "页面会在确认权限状态后自动加载。";
-        button.hidden = true;
         return;
     }
 
     title.textContent = "需要管理员权限";
     if (state.superuserConfigured === false) {
-        copy.textContent = "当前 Web 控制台处于受限访问模式，但这台主机没有可用的管理员提权方式。请以管理员身份重新登录后再查看安全状态。";
-        button.hidden = true;
+        copy.textContent = "当前 Web 控制台处于受限访问模式，且这台主机没有可用的管理员提权方式。请使用具备管理员权限的会话重新进入后再查看安全状态。";
         return;
     }
 
-    copy.textContent = "当前 Web 控制台正以受限访问模式运行。查看和管理防火墙与 Fail2Ban 需要管理员权限。";
-    button.hidden = false;
+    copy.textContent = "当前 Web 控制台正以受限访问模式运行。请先使用 Cockpit 统一的管理员访问入口完成认证，然后返回此页面查看和管理防火墙与 Fail2Ban。";
 }
 
 function handleSuperuserStateChange(nextAllowed, configured = computeSuperuserConfigured()) {
@@ -209,10 +204,8 @@ function handleSuperuserStateChange(nextAllowed, configured = computeSuperuserCo
     state.superuserConfigured = configured;
     renderAccessState();
 
-    if (previous !== nextAllowed && nextAllowed === true) {
-        closeSuperuserModal();
+    if (previous !== nextAllowed && nextAllowed === true)
         refreshVisibleTab();
-    }
 }
 
 function initSuperuser() {
@@ -235,208 +228,6 @@ function initSuperuser() {
 
         handleSuperuserStateChange(computeSuperuserAllowed());
     });
-}
-
-function clearSuperuserPromptHandler() {
-    if (state.superuserPromptHandler && state.superuserProxy?.removeEventListener) {
-        state.superuserProxy.removeEventListener("Prompt", state.superuserPromptHandler);
-        state.superuserPromptHandler = null;
-    }
-}
-
-function closeSuperuserModal() {
-    clearSuperuserPromptHandler();
-    setHidden("superuser-modal", true);
-    const promptInput = getElement("superuser-prompt-input");
-    if (promptInput)
-        promptInput.value = "";
-}
-
-function setSuperuserError(message = "") {
-    const error = getElement("superuser-modal-error");
-    if (!error)
-        return;
-
-    error.textContent = message;
-    error.hidden = !message;
-}
-
-function setSuperuserBusy(busy) {
-    const submit = getElement("superuser-submit");
-    const cancel = getElement("superuser-cancel");
-    const select = getElement("superuser-method-select");
-    const input = getElement("superuser-prompt-input");
-
-    if (submit)
-        submit.disabled = busy;
-    if (cancel)
-        cancel.disabled = false;
-    if (select)
-        select.disabled = busy;
-    if (input)
-        input.disabled = busy;
-}
-
-function getSuperuserMethodLabel(method) {
-    return state.superuserProxy?.Methods?.[method]?.v?.label?.v || method;
-}
-
-function beginSuperuserAuth(method) {
-    if (!state.superuserProxy)
-        return;
-
-    const title = getElement("superuser-modal-title");
-    const message = getElement("superuser-modal-message");
-    const promptForm = getElement("superuser-prompt-form");
-    const promptLabel = getElement("superuser-prompt-label");
-    const promptInput = getElement("superuser-prompt-input");
-    const submit = getElement("superuser-submit");
-
-    setSuperuserError("");
-    setHidden("superuser-method-field", true);
-    setHidden("superuser-prompt-form", true);
-    if (title)
-        title.textContent = "开启管理员访问";
-    if (message)
-        message.textContent = "正在请求管理员权限...";
-    if (submit)
-        submit.textContent = "认证中...";
-    setSuperuserBusy(true);
-
-    let prompted = false;
-
-    const onPrompt = (_event, promptMessage, promptText, defaultValue, echo, error) => {
-        prompted = true;
-        if (title)
-            title.textContent = "切换到管理员访问";
-        if (message)
-            message.textContent = promptMessage || "请认证以获得管理员权限。";
-        if (promptLabel)
-            promptLabel.textContent = promptText || "密码";
-        if (promptInput) {
-            promptInput.type = echo ? "text" : "password";
-            promptInput.value = defaultValue || "";
-            promptInput.focus();
-        }
-        if (promptForm)
-            promptForm.hidden = false;
-        if (submit)
-            submit.textContent = "认证";
-        setSuperuserBusy(false);
-        setSuperuserError(error ? summarizeOutput(error, false) : "");
-    };
-
-    clearSuperuserPromptHandler();
-    state.superuserPromptHandler = onPrompt;
-    state.superuserProxy.addEventListener("Prompt", onPrompt);
-
-    state.superuserProxy.Start(method)
-        .then(() => {
-            clearSuperuserPromptHandler();
-            if (!prompted)
-                closeSuperuserModal();
-        })
-        .catch(error => {
-            clearSuperuserPromptHandler();
-            const messageText = summarizeOutput(formatError(error), false);
-            if (/cancelled/i.test(messageText)) {
-                closeSuperuserModal();
-                return;
-            }
-
-            if (title)
-                title.textContent = "开启管理员访问失败";
-            if (message)
-                message.textContent = prompted ? "认证未通过，请重试。" : "无法完成管理员认证。";
-            if (submit)
-                submit.textContent = prompted ? "认证" : "重试";
-            setSuperuserBusy(false);
-            setSuperuserError(messageText);
-            if (!prompted)
-                setHidden("superuser-method-field", false);
-        });
-}
-
-function openSuperuserModal() {
-    if (!state.superuserProxy || state.superuserConfigured !== true)
-        return;
-
-    const title = getElement("superuser-modal-title");
-    const message = getElement("superuser-modal-message");
-    const select = getElement("superuser-method-select");
-    const submit = getElement("superuser-submit");
-    const cancel = getElement("superuser-cancel");
-
-    setHidden("superuser-modal", false);
-    setHidden("superuser-method-field", true);
-    setHidden("superuser-prompt-form", true);
-    setSuperuserError("");
-    if (title)
-        title.textContent = "开启管理员访问";
-    if (message)
-        message.textContent = "正在检查可用的管理员访问方式...";
-    if (submit) {
-        submit.textContent = "认证";
-        submit.hidden = false;
-    }
-    if (cancel)
-        cancel.textContent = "取消";
-    setSuperuserBusy(true);
-
-    state.superuserProxy.Stop()
-        .catch(() => undefined)
-        .finally(() => {
-            const methods = Object.keys(state.superuserProxy.Methods || {});
-            const available = methods.length ? methods : state.superuserProxy.Bridges || [];
-
-            if (!available.length) {
-                if (message)
-                    message.textContent = "没有可用的管理员认证方式。";
-                if (submit)
-                    submit.hidden = true;
-                setSuperuserBusy(false);
-                setSuperuserError("当前主机没有可用的 sudo 或 pkexec 提权方式。");
-                return;
-            }
-
-            if (available.length === 1) {
-                beginSuperuserAuth(available[0]);
-                return;
-            }
-
-            if (message)
-                message.textContent = "请选择要使用的管理员认证方式。";
-            if (select) {
-                select.replaceChildren();
-                available.forEach(method => {
-                    const option = document.createElement("option");
-                    option.value = method;
-                    option.textContent = getSuperuserMethodLabel(method);
-                    select.append(option);
-                });
-                select.value = available[0];
-                select.focus();
-            }
-            setHidden("superuser-method-field", false);
-            setSuperuserBusy(false);
-        });
-}
-
-function submitSuperuserModal() {
-    if (getElement("superuser-prompt-form") && !getElement("superuser-prompt-form").hidden) {
-        const promptInput = getElement("superuser-prompt-input");
-        const submit = getElement("superuser-submit");
-        setSuperuserError("");
-        if (submit)
-            submit.textContent = "认证中...";
-        setSuperuserBusy(true);
-        state.superuserProxy?.Answer(promptInput?.value || "");
-        return;
-    }
-
-    const method = getElement("superuser-method-select")?.value;
-    if (method)
-        beginSuperuserAuth(method);
 }
 
 function run(args) {
@@ -1330,17 +1121,6 @@ function bindEvents() {
     document.getElementById("iptables-delete-form")?.addEventListener("submit", handleIptablesDelete);
     document.getElementById("fail2ban-jail-form")?.addEventListener("submit", handleFail2BanJail);
     document.getElementById("fail2ban-unban-form")?.addEventListener("submit", handleFail2BanUnban);
-
-    document.getElementById("security-superuser-button")?.addEventListener("click", openSuperuserModal);
-    document.getElementById("superuser-submit")?.addEventListener("click", submitSuperuserModal);
-    document.getElementById("superuser-cancel")?.addEventListener("click", () => {
-        state.superuserProxy?.Stop()?.catch(() => undefined);
-        closeSuperuserModal();
-    });
-    document.getElementById("superuser-prompt-form")?.addEventListener("submit", event => {
-        event.preventDefault();
-        submitSuperuserModal();
-    });
 
     document.addEventListener("visibilitychange", () => {
         if (document.hidden) {
