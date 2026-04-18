@@ -17,6 +17,21 @@ const state = {
     superuserError: "",
     superuserProxy: null,
     superuserPermission: null,
+    superuserDialog: {
+        open: false,
+        methods: [],
+        selectedMethod: "",
+        message: "",
+        prompt: "",
+        value: "",
+        echo: false,
+        error: "",
+        errorTone: "warning",
+        inProgress: false,
+        promptSeen: false,
+        cleanup: null,
+        closeAfterSuccess: false,
+    },
 };
 
 const SERVICE_LINKS = {
@@ -152,13 +167,252 @@ function computeSuperuserAllowed() {
     return state.superuserProxy.Current !== "none";
 }
 
+function renderSuperuserDialog() {
+    const dialog = getElement("security-auth-dialog");
+    const alert = getElement("security-auth-alert");
+    const title = getElement("security-auth-title");
+    const message = getElement("security-auth-message");
+    const methodField = getElement("security-auth-method-field");
+    const methodSelect = getElement("security-auth-method");
+    const promptField = getElement("security-auth-prompt-field");
+    const promptLabel = getElement("security-auth-prompt-label");
+    const promptInput = getElement("security-auth-input");
+    const submit = getElement("security-auth-submit");
+    const cancel = getElement("security-auth-cancel");
+
+    if (!dialog || !alert || !title || !message || !methodField || !methodSelect || !promptField || !promptLabel || !promptInput || !submit || !cancel)
+        return;
+
+    const current = state.superuserDialog;
+    dialog.hidden = !current.open;
+
+    if (!current.open)
+        return;
+
+    title.textContent = "Switch to administrative access";
+
+    alert.hidden = !current.error;
+    alert.textContent = current.error;
+    alert.classList.toggle("tone-danger", current.errorTone === "danger");
+
+    methodField.hidden = current.methods.length <= 1 || Boolean(current.prompt);
+    methodSelect.replaceChildren();
+    current.methods.forEach(method => {
+        const option = document.createElement("option");
+        option.value = method.id;
+        option.textContent = method.label;
+        option.selected = method.id === current.selectedMethod;
+        methodSelect.append(option);
+    });
+    methodSelect.disabled = current.inProgress;
+
+    message.hidden = !current.message;
+    message.textContent = current.message;
+
+    promptField.hidden = !current.prompt;
+    promptLabel.textContent = current.prompt || "Password";
+    promptInput.type = current.echo ? "text" : "password";
+    promptInput.value = current.value;
+    promptInput.disabled = current.inProgress;
+
+    submit.disabled = current.inProgress;
+    cancel.disabled = current.inProgress;
+
+    if (current.prompt)
+        submit.textContent = current.inProgress ? "Authenticating..." : "Authenticate";
+    else
+        submit.textContent = current.inProgress ? "Authenticating..." : "Authenticate";
+
+    window.setTimeout(() => {
+        if (!state.superuserDialog.open)
+            return;
+        if (!promptField.hidden)
+            promptInput.focus();
+        else if (!methodField.hidden)
+            methodSelect.focus();
+        else
+            submit.focus();
+    }, 0);
+}
+
+function closeSuperuserDialog(options = {}) {
+    if (options.stop !== false && state.superuserProxy?.valid)
+        state.superuserProxy.Stop().catch(() => {});
+
+    resetSuperuserDialog();
+    renderSuperuserDialog();
+}
+
+function getPreferredSuperuserMethod(methods) {
+    if (!methods.length)
+        return "sudo";
+
+    const sudo = methods.find(method => method.id === "sudo");
+    return (sudo || methods[0]).id;
+}
+
+function updateSuperuserDialog(patch) {
+    state.superuserDialog = {
+        ...state.superuserDialog,
+        ...patch,
+    };
+    renderSuperuserDialog();
+}
+
+async function invokeSuperuserStart(method) {
+    try {
+        return await state.superuserProxy.Start(method);
+    } catch (error) {
+        const message = formatError(error);
+        if (/argument|signature|type/i.test(message))
+            return state.superuserProxy.Start();
+        throw error;
+    }
+}
+
+async function startSuperuserAuthentication(method) {
+    if (!state.superuserProxy?.valid || typeof state.superuserProxy.Start !== "function")
+        throw new Error("当前环境不支持从此页面直接开启管理员权限。");
+
+    const promptListener = (_event, message, prompt, value, _unused, echo, hintError) => {
+        updateSuperuserDialog({
+            message: normalizePromptText(message, "Please authenticate to gain administrative access"),
+            prompt: normalizePromptText(prompt, "Password"),
+            value: String(unwrapVariant(value) || ""),
+            echo: Boolean(unwrapVariant(echo)),
+            inProgress: false,
+            error: hintError ? normalizePromptText(hintError) : "",
+            errorTone: state.superuserDialog.promptSeen ? "danger" : "warning",
+            promptSeen: true,
+        });
+    };
+
+    updateSuperuserDialog({
+        open: true,
+        message: "Please authenticate to gain administrative access",
+        prompt: "",
+        value: "",
+        echo: false,
+        error: "",
+        errorTone: "warning",
+        inProgress: true,
+        promptSeen: false,
+    });
+
+    state.superuserProxy.addEventListener("Prompt", promptListener);
+    updateSuperuserDialog({
+        cleanup: () => state.superuserProxy?.removeEventListener("Prompt", promptListener),
+    });
+
+    try {
+        await invokeSuperuserStart(method);
+        closeSuperuserDialog({ stop: false });
+    } catch (error) {
+        const message = formatError(error);
+        if (message !== "cancelled") {
+            updateSuperuserDialog({
+                inProgress: false,
+                prompt: "",
+                message: "",
+                error: normalizePromptText(message, "Problem becoming administrator"),
+                errorTone: "danger",
+            });
+        } else {
+            closeSuperuserDialog();
+        }
+    }
+}
+
+async function handleSuperuserDialogSubmit(event) {
+    event.preventDefault();
+    const current = state.superuserDialog;
+    if (!current.open || current.inProgress)
+        return;
+
+    if (current.prompt) {
+        updateSuperuserDialog({
+            inProgress: true,
+            error: "",
+        });
+        state.superuserProxy?.Answer(current.value);
+        return;
+    }
+
+    const methodSelect = getElement("security-auth-method");
+    const selectedMethod = typeof methodSelect?.value === "string" && methodSelect.value
+        ? methodSelect.value
+        : getPreferredSuperuserMethod(current.methods);
+
+    updateSuperuserDialog({
+        selectedMethod,
+    });
+    await startSuperuserAuthentication(selectedMethod);
+}
+
+function handleSuperuserDialogInput(event) {
+    if (event.target?.id === "security-auth-input") {
+        updateSuperuserDialog({
+            value: event.target.value,
+        });
+        return;
+    }
+
+    if (event.target?.id === "security-auth-method") {
+        updateSuperuserDialog({
+            selectedMethod: event.target.value,
+        });
+    }
+}
+
+async function requestSuperuserAccess() {
+    if (state.superuserAllowed === true || state.superuserDialog.open)
+        return;
+
+    state.superuserError = "";
+    renderAccessState();
+
+    if (!state.superuserProxy?.valid || typeof state.superuserProxy.Start !== "function") {
+        state.superuserError = " 当前环境不支持从此页面直接开启管理员权限。";
+        renderAccessState();
+        return;
+    }
+
+    const methods = getSuperuserMethods();
+    updateSuperuserDialog({
+        open: true,
+        methods,
+        selectedMethod: getPreferredSuperuserMethod(methods),
+        message: methods.length > 1 ? "" : "Please authenticate to gain administrative access",
+        prompt: "",
+        value: "",
+        echo: false,
+        error: "",
+        errorTone: "warning",
+        inProgress: false,
+        promptSeen: false,
+        cleanup: null,
+    });
+
+    await state.superuserProxy.Stop().catch(() => {});
+    if (!state.superuserDialog.open)
+        return;
+
+    if (methods.length <= 1)
+        await startSuperuserAuthentication(getPreferredSuperuserMethod(methods));
+    else
+        renderSuperuserDialog();
+}
+
 function renderAccessState() {
     const pageContent = document.querySelector(".page-content");
+    const panel = getElement("security-access-panel");
     const title = getElement("security-access-title");
     const copy = getElement("security-access-copy");
     const action = getElement("security-access-action");
 
     if (state.superuserAllowed === true) {
+        if (panel)
+            panel.classList.remove("is-loading");
         setHidden("security-access-panel", true);
         if (pageContent)
             pageContent.hidden = false;
@@ -177,13 +431,17 @@ function renderAccessState() {
         return;
 
     if (state.superuserAllowed === null) {
-        title.textContent = "正在加载...";
-        copy.textContent = "正在检查当前会话的管理员权限。";
+        if (panel)
+            panel.classList.add("is-loading");
+        title.textContent = "";
+        copy.textContent = "";
         action.hidden = true;
         action.disabled = true;
         return;
     }
 
+    if (panel)
+        panel.classList.remove("is-loading");
     title.textContent = "需要管理员权限";
     copy.textContent = state.superuserError
         ? `配置防火墙与其他安全选项需要管理员权限。${state.superuserError}`
@@ -193,41 +451,13 @@ function renderAccessState() {
     action.textContent = "Turn on administrative access";
 }
 
-async function requestSuperuserAccess() {
-    const button = getElement("security-access-action");
-    if (!button || button.disabled)
-        return;
-
-    state.superuserError = "";
-    renderAccessState();
-    button.disabled = true;
-    button.textContent = "Turning on...";
-
-    try {
-        if (!state.superuserProxy?.valid || typeof state.superuserProxy.Start !== "function")
-            throw new Error("当前环境不支持从此页面直接开启管理员权限。");
-
-        try {
-            await state.superuserProxy.Start("any");
-        } catch (error) {
-            const message = formatError(error);
-            if (/argument|signature|type/i.test(message))
-                await state.superuserProxy.Start();
-            else
-                throw error;
-        }
-    } catch (error) {
-        state.superuserError = ` ${summarizeOutput(formatError(error), false)}`;
-    } finally {
-        renderAccessState();
-    }
-}
-
 function handleSuperuserStateChange(nextAllowed) {
     const previous = state.superuserAllowed;
     state.superuserAllowed = nextAllowed;
     if (nextAllowed !== false)
         state.superuserError = "";
+    if (nextAllowed === true && state.superuserDialog.open)
+        closeSuperuserDialog({ stop: false });
     renderAccessState();
 
     if (previous !== nextAllowed && nextAllowed === true)
@@ -290,6 +520,59 @@ function formatError(error) {
     }
 }
 
+function unwrapVariant(value) {
+    let current = value;
+    while (
+        current &&
+        typeof current === "object" &&
+        Object.prototype.hasOwnProperty.call(current, "v") &&
+        Object.keys(current).length === 1
+    ) {
+        current = current.v;
+    }
+    return current;
+}
+
+function normalizePromptText(value, fallback = "") {
+    const text = String(unwrapVariant(value) || "").replace(/^\[sudo] /, "").trim();
+    if (!text)
+        return fallback;
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function getSuperuserMethods() {
+    const methods = unwrapVariant(state.superuserProxy?.Methods);
+    if (!methods || typeof methods !== "object")
+        return [];
+
+    return Object.keys(methods).map(id => {
+        const definition = unwrapVariant(methods[id]);
+        const label = normalizePromptText(unwrapVariant(definition?.label), id);
+        return { id, label: label || id };
+    });
+}
+
+function resetSuperuserDialog() {
+    if (typeof state.superuserDialog.cleanup === "function")
+        state.superuserDialog.cleanup();
+
+    state.superuserDialog = {
+        open: false,
+        methods: [],
+        selectedMethod: "",
+        message: "",
+        prompt: "",
+        value: "",
+        echo: false,
+        error: "",
+        errorTone: "warning",
+        inProgress: false,
+        promptSeen: false,
+        cleanup: null,
+        closeAfterSuccess: false,
+    };
+}
+
 function setText(id, text) {
     const element = document.getElementById(id);
     if (element)
@@ -302,13 +585,15 @@ function setBadge(id, text, tone = "neutral") {
         return;
 
     element.textContent = text;
-    element.classList.remove("tone-success", "tone-warning", "tone-danger");
+    element.classList.remove("tone-success", "tone-warning", "tone-danger", "tone-loading");
     if (tone === "success")
         element.classList.add("tone-success");
     else if (tone === "warning")
         element.classList.add("tone-warning");
     else if (tone === "danger")
         element.classList.add("tone-danger");
+    else if (tone === "loading")
+        element.classList.add("tone-loading");
 }
 
 function setCallout(id, text, tone = "neutral") {
@@ -803,7 +1088,7 @@ async function refreshFirewallStatus() {
         updateFirewallServices();
         updateRefreshCopy("firewall", { loading: true });
         setText("firewall-summary-copy", "正在刷新防火墙状态...");
-        setBadge("firewall-status-pill", "加载中");
+        setBadge("firewall-status-pill", "加载中", "loading");
 
         try {
             if (state.firewallBackend === "ufw") {
@@ -843,7 +1128,7 @@ async function refreshFail2BanStatus() {
 
         updateRefreshCopy("fail2ban", { loading: true });
         setText("fail2ban-service-copy", "正在刷新 Fail2Ban 状态...");
-        setBadge("fail2ban-service-pill", "加载中");
+        setBadge("fail2ban-service-pill", "加载中", "loading");
 
         try {
             const [serviceResult, statusResult] = await Promise.all([
@@ -882,7 +1167,7 @@ async function loadFail2BanJail(jail, options = {}) {
         return;
     }
 
-    setBadge("fail2ban-jail-pill", "加载中");
+    setBadge("fail2ban-jail-pill", "加载中", "loading");
     setText("fail2ban-current-jail", jailName);
     setText("fail2ban-current-jail-copy", "正在加载 jail 详情...");
 
@@ -1100,6 +1385,14 @@ function bindEvents() {
     });
 
     document.getElementById("security-access-action")?.addEventListener("click", requestSuperuserAccess);
+    document.getElementById("security-auth-form")?.addEventListener("submit", handleSuperuserDialogSubmit);
+    document.getElementById("security-auth-form")?.addEventListener("input", handleSuperuserDialogInput);
+    document.getElementById("security-auth-form")?.addEventListener("change", handleSuperuserDialogInput);
+    document.getElementById("security-auth-cancel")?.addEventListener("click", () => closeSuperuserDialog());
+    document.getElementById("security-auth-dialog")?.addEventListener("click", event => {
+        if (event.target?.id === "security-auth-dialog")
+            closeSuperuserDialog();
+    });
     document.getElementById("ufw-add-form")?.addEventListener("submit", handleUfwAdd);
     document.getElementById("ufw-delete-form")?.addEventListener("submit", handleUfwDelete);
     document.getElementById("iptables-add-form")?.addEventListener("submit", handleIptablesAdd);
@@ -1118,6 +1411,11 @@ function bindEvents() {
             startAutoRefresh();
         }
     });
+
+    document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && state.superuserDialog.open)
+            closeSuperuserDialog();
+    });
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1130,5 +1428,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     clearFail2BanJail("可从 jail 列表快速打开，也可以手动输入名称查看。");
     switchTab(state.activeTab);
     switchFirewallBackend(state.firewallBackend, { refresh: false });
+    renderSuperuserDialog();
     renderAccessState();
 });

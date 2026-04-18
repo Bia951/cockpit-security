@@ -12,13 +12,10 @@
 </head>
 <body>
     <div class="page-shell">
-        <header class="page-header">
-            <h1 class="page-title">安全</h1>
-        </header>
-
         <section class="access-state" id="security-access-panel" hidden>
             <div class="pf-empty-state">
                 <div class="pf-empty-state__content">
+                    <div class="pf-empty-state__spinner" id="security-access-spinner" aria-hidden="true"></div>
                     <div class="pf-empty-state__header">
                         <div class="pf-empty-state__title">
                             <h1 class="pf-empty-state__title-text" id="security-access-title">正在加载...</h1>
@@ -347,6 +344,35 @@
                 </section>
             </section>
         </main>
+
+        <div class="auth-dialog-backdrop" id="security-auth-dialog" hidden>
+            <div class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="security-auth-title">
+                <div class="auth-dialog__header">
+                    <h1 class="auth-dialog__title" id="security-auth-title">Switch to administrative access</h1>
+                </div>
+
+                <form class="auth-dialog__body" id="security-auth-form">
+                    <div class="inline-alert" id="security-auth-alert" hidden></div>
+
+                    <div class="auth-dialog__field" id="security-auth-method-field" hidden>
+                        <label for="security-auth-method">Method</label>
+                        <select id="security-auth-method"></select>
+                    </div>
+
+                    <p class="auth-dialog__message" id="security-auth-message" hidden></p>
+
+                    <div class="auth-dialog__field" id="security-auth-prompt-field" hidden>
+                        <label for="security-auth-input" id="security-auth-prompt-label">Password</label>
+                        <input id="security-auth-input" autocomplete="current-password">
+                    </div>
+                </form>
+
+                <div class="auth-dialog__footer">
+                    <button class="primary-button" id="security-auth-submit" type="submit" form="security-auth-form">Authenticate</button>
+                    <button class="link-button" id="security-auth-cancel" type="button">Cancel</button>
+                </div>
+            </div>
+        </div>
     </div>
 </body>
 </html>
