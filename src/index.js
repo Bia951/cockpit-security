@@ -14,6 +14,7 @@ const state = {
         fail2ban: 0,
     },
     superuserAllowed: null,
+    superuserError: "",
     superuserProxy: null,
     superuserPermission: null,
 };
@@ -154,11 +155,15 @@ function computeSuperuserAllowed() {
 function renderAccessState() {
     const pageContent = document.querySelector(".page-content");
     const title = getElement("security-access-title");
+    const copy = getElement("security-access-copy");
+    const action = getElement("security-access-action");
 
     if (state.superuserAllowed === true) {
         setHidden("security-access-panel", true);
         if (pageContent)
             pageContent.hidden = false;
+        if (action)
+            action.hidden = true;
         startAutoRefresh();
         return;
     }
@@ -168,20 +173,61 @@ function renderAccessState() {
     if (pageContent)
         pageContent.hidden = true;
 
-    if (!title)
+    if (!title || !copy || !action)
         return;
 
     if (state.superuserAllowed === null) {
         title.textContent = "正在加载...";
+        copy.textContent = "正在检查当前会话的管理员权限。";
+        action.hidden = true;
+        action.disabled = true;
         return;
     }
 
     title.textContent = "需要管理员权限";
+    copy.textContent = state.superuserError
+        ? `配置防火墙与其他安全选项需要管理员权限。${state.superuserError}`
+        : "配置防火墙与其他安全选项需要管理员权限。";
+    action.hidden = false;
+    action.disabled = false;
+    action.textContent = "Turn on administrative access";
+}
+
+async function requestSuperuserAccess() {
+    const button = getElement("security-access-action");
+    if (!button || button.disabled)
+        return;
+
+    state.superuserError = "";
+    renderAccessState();
+    button.disabled = true;
+    button.textContent = "Turning on...";
+
+    try {
+        if (!state.superuserProxy?.valid || typeof state.superuserProxy.Start !== "function")
+            throw new Error("当前环境不支持从此页面直接开启管理员权限。");
+
+        try {
+            await state.superuserProxy.Start("any");
+        } catch (error) {
+            const message = formatError(error);
+            if (/argument|signature|type/i.test(message))
+                await state.superuserProxy.Start();
+            else
+                throw error;
+        }
+    } catch (error) {
+        state.superuserError = ` ${summarizeOutput(formatError(error), false)}`;
+    } finally {
+        renderAccessState();
+    }
 }
 
 function handleSuperuserStateChange(nextAllowed) {
     const previous = state.superuserAllowed;
     state.superuserAllowed = nextAllowed;
+    if (nextAllowed !== false)
+        state.superuserError = "";
     renderAccessState();
 
     if (previous !== nextAllowed && nextAllowed === true)
@@ -668,38 +714,28 @@ function parseFail2BanJail(output, jailName) {
 function updateFirewallServices() {
     const services = SERVICE_LINKS[state.firewallBackend];
     renderServiceLinks("firewall-service-links", services);
-    setText(
-        "firewall-service-copy",
-        state.firewallBackend === "ufw"
-            ? "UFW 对应的 systemd unit。"
-            : "iptables 没有统一的单一服务，这里给出常见的持久化/兼容 unit。"
-    );
 }
 
-function renderFirewallStatus(parsed, rawOutput) {
+function renderFirewallStatus(parsed) {
     setText("firewall-backend-label", state.firewallBackend.toUpperCase());
     setText("firewall-summary-copy", parsed.summary);
     setText("firewall-rule-count", parsed.ruleCount);
     setText("firewall-policy-summary", parsed.policySummary);
     setBadge("firewall-status-pill", parsed.statusLabel, parsed.tone);
-    setBadge("firewall-detail-pill", parsed.statusLabel, parsed.tone);
     renderDetailList("firewall-details", parsed.details, "没有解析到防火墙详情。");
     renderTable("firewall-rules-head", "firewall-rules-body", "firewall-rules-empty", parsed.columns, parsed.rows, parsed.emptyText);
-    setText("firewall-status", rawOutput || "没有拿到原始防火墙输出。");
 }
 
-function renderFirewallError(message, rawOutput) {
+function renderFirewallError(message) {
     setText("firewall-summary-copy", summarizeOutput(message, false));
     setText("firewall-rule-count", "--");
     setText("firewall-policy-summary", "状态刷新失败。");
     setBadge("firewall-status-pill", "刷新失败", "danger");
-    setBadge("firewall-detail-pill", "刷新失败", "danger");
     renderDetailList("firewall-details", [["错误", summarizeOutput(message, false)]], "状态刷新失败。");
     renderTable("firewall-rules-head", "firewall-rules-body", "firewall-rules-empty", ["状态"], [], "无法读取规则列表。");
-    setText("firewall-status", rawOutput || message);
 }
 
-function renderFail2BanStatus(parsed, rawOutput) {
+function renderFail2BanStatus(parsed) {
     setText("fail2ban-service-state", parsed.serviceState);
     setText("fail2ban-service-copy", parsed.summary);
     setText("fail2ban-jail-count", String(parsed.jailCount));
@@ -713,10 +749,9 @@ function renderFail2BanStatus(parsed, rawOutput) {
             loadFail2BanJail(jail);
         },
     });
-    setText("fail2ban-status", rawOutput || "没有拿到原始 Fail2Ban 状态输出。");
 }
 
-function renderFail2BanJail(parsed, rawOutput, tone = "success") {
+function renderFail2BanJail(parsed, tone = "success") {
     state.currentJail = parsed.name;
     setText("fail2ban-current-jail", parsed.name);
     setText("fail2ban-current-jail-copy", parsed.summary);
@@ -726,7 +761,6 @@ function renderFail2BanJail(parsed, rawOutput, tone = "success") {
     renderTokenRow("fail2ban-banned-ips", parsed.bannedIps, {
         emptyText: "当前没有封禁 IP",
     });
-    setText("fail2ban-jail-output", rawOutput || "没有拿到原始 jail 输出。");
     fillJailInputs(parsed.name);
 }
 
@@ -740,13 +774,11 @@ function clearFail2BanJail(message) {
     renderTokenRow("fail2ban-banned-ips", [], {
         emptyText: "当前没有封禁 IP",
     });
-    setText("fail2ban-jail-output", "选择一个 jail 后，这里会保留完整输出。");
 }
 
 function showCommandResult(prefix, label, text, ok = true, summaryOverride = "") {
     setBadge(`${prefix}-command-label`, label, ok ? "success" : "danger");
     setCallout(`${prefix}-result-summary`, summaryOverride || summarizeOutput(text, ok), ok ? "success" : "danger");
-    setText(`${prefix}-result`, text || "命令执行完成，没有额外输出。");
 }
 
 async function execute(prefix, label, argsOrScript, options = {}) {
@@ -772,8 +804,6 @@ async function refreshFirewallStatus() {
         updateRefreshCopy("firewall", { loading: true });
         setText("firewall-summary-copy", "正在刷新防火墙状态...");
         setBadge("firewall-status-pill", "加载中");
-        setBadge("firewall-detail-pill", "加载中");
-        setText("firewall-status", "正在刷新防火墙状态...");
 
         try {
             if (state.firewallBackend === "ufw") {
@@ -782,42 +812,23 @@ async function refreshFirewallStatus() {
                     capture(["ufw", "status", "numbered"]),
                 ]);
 
-                const rawOutput = [
-                    "== ufw status verbose ==",
-                    verboseResult.output,
-                    "",
-                    "== ufw status numbered ==",
-                    numberedResult.output,
-                ].join("\n");
-
                 if (!verboseResult.ok && !numberedResult.ok) {
-                    renderFirewallError(numberedResult.output || verboseResult.output, rawOutput);
+                    renderFirewallError(numberedResult.output || verboseResult.output);
                     return;
                 }
 
-                renderFirewallStatus(parseUfwStatus(numberedResult.output, verboseResult.output), rawOutput);
+                renderFirewallStatus(parseUfwStatus(numberedResult.output, verboseResult.output));
                 return;
             }
 
-            const [listResult, specResult] = await Promise.all([
-                capture(["iptables", "-L", "INPUT", "-n", "--line-numbers", "-v"]),
-                capture(["iptables", "-S", "INPUT"]),
-            ]);
-
-            const rawOutput = [
-                "== iptables -L INPUT -n --line-numbers -v ==",
-                listResult.output,
-                "",
-                "== iptables -S INPUT ==",
-                specResult.output,
-            ].join("\n");
+            const listResult = await capture(["iptables", "-L", "INPUT", "-n", "--line-numbers", "-v"]);
 
             if (!listResult.ok) {
-                renderFirewallError(listResult.output, rawOutput);
+                renderFirewallError(listResult.output);
                 return;
             }
 
-            renderFirewallStatus(parseIptablesStatus(listResult.output), rawOutput);
+            renderFirewallStatus(parseIptablesStatus(listResult.output));
         } finally {
             state.lastRefreshed.firewall = Date.now();
             updateRefreshCopy("firewall");
@@ -833,7 +844,6 @@ async function refreshFail2BanStatus() {
         updateRefreshCopy("fail2ban", { loading: true });
         setText("fail2ban-service-copy", "正在刷新 Fail2Ban 状态...");
         setBadge("fail2ban-service-pill", "加载中");
-        setText("fail2ban-status", "正在刷新 Fail2Ban 状态...");
 
         try {
             const [serviceResult, statusResult] = await Promise.all([
@@ -846,21 +856,10 @@ async function refreshFail2BanStatus() {
                 capture(["fail2ban-client", "status"]),
             ]);
 
-            const rawOutput = [
-                "== systemctl show fail2ban ==",
-                serviceResult.output,
-                "",
-                "== fail2ban-client status ==",
-                statusResult.output,
-            ].join("\n");
-
-            renderFail2BanStatus(
-                parseFail2BanOverview(serviceResult.output, statusResult.output, serviceResult.ok, statusResult.ok),
-                rawOutput
-            );
+            const parsed = parseFail2BanOverview(serviceResult.output, statusResult.output, serviceResult.ok, statusResult.ok);
+            renderFail2BanStatus(parsed);
 
             if (state.currentJail) {
-                const parsed = parseFail2BanOverview(serviceResult.output, statusResult.output, serviceResult.ok, statusResult.ok);
                 if (parsed.jails.includes(state.currentJail))
                     await loadFail2BanJail(state.currentJail, { quiet: true });
                 else
@@ -886,7 +885,6 @@ async function loadFail2BanJail(jail, options = {}) {
     setBadge("fail2ban-jail-pill", "加载中");
     setText("fail2ban-current-jail", jailName);
     setText("fail2ban-current-jail-copy", "正在加载 jail 详情...");
-    setText("fail2ban-jail-output", "正在加载 jail 详情...");
 
     const result = await capture(["fail2ban-client", "status", jailName]);
     if (!result.ok) {
@@ -899,14 +897,13 @@ async function loadFail2BanJail(jail, options = {}) {
         renderTokenRow("fail2ban-banned-ips", [], {
             emptyText: "当前没有封禁 IP",
         });
-        setText("fail2ban-jail-output", result.output);
         if (!options.quiet)
             showCommandResult("fail2ban", `jail: ${jailName} 失败`, result.output, false, summary);
         return;
     }
 
     const parsed = parseFail2BanJail(result.output, jailName);
-    renderFail2BanJail(parsed, result.output);
+    renderFail2BanJail(parsed);
     if (!options.quiet)
         showCommandResult("fail2ban", `jail: ${jailName}`, result.output, true, parsed.summary);
 }
@@ -915,11 +912,15 @@ function switchTab(tab) {
     state.activeTab = tab;
 
     document.querySelectorAll(".tab-button").forEach(button => {
-        button.classList.toggle("active", button.dataset.tab === tab);
+        const active = button.dataset.tab === tab;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
     });
 
     document.querySelectorAll(".tab-panel").forEach(panel => {
-        panel.classList.toggle("active", panel.dataset.panel === tab);
+        const active = panel.dataset.panel === tab;
+        panel.classList.toggle("active", active);
+        panel.hidden = !active;
     });
 
     if (state.superuserAllowed === true)
@@ -930,11 +931,15 @@ function switchFirewallBackend(backend, options = {}) {
     state.firewallBackend = backend;
 
     document.querySelectorAll(".backend-button").forEach(button => {
-        button.classList.toggle("active", button.dataset.backend === backend);
+        const active = button.dataset.backend === backend;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
     });
 
     document.querySelectorAll(".backend-panel").forEach(panel => {
-        panel.classList.toggle("active", panel.dataset.backendPanel === backend);
+        const active = panel.dataset.backendPanel === backend;
+        panel.classList.toggle("active", active);
+        panel.hidden = !active;
     });
 
     updateFirewallServices();
@@ -1094,6 +1099,7 @@ function bindEvents() {
         button.addEventListener("click", () => handleQuickAction(button.dataset.action));
     });
 
+    document.getElementById("security-access-action")?.addEventListener("click", requestSuperuserAccess);
     document.getElementById("ufw-add-form")?.addEventListener("submit", handleUfwAdd);
     document.getElementById("ufw-delete-form")?.addEventListener("submit", handleUfwDelete);
     document.getElementById("iptables-add-form")?.addEventListener("submit", handleIptablesAdd);
