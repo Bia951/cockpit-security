@@ -1,7 +1,23 @@
+const AUTO_REFRESH_MS = 15000;
+
 const state = {
     activeTab: "firewall",
     firewallBackend: "ufw",
     currentJail: "",
+    autoRefreshTimer: null,
+    refreshLocks: {
+        firewall: null,
+        fail2ban: null,
+    },
+    lastRefreshed: {
+        firewall: 0,
+        fail2ban: 0,
+    },
+    superuserAllowed: null,
+    superuserConfigured: null,
+    superuserProxy: null,
+    superuserPermission: null,
+    superuserPromptHandler: null,
 };
 
 const SERVICE_LINKS = {
@@ -28,6 +44,400 @@ const SERVICE_LINKS = {
         },
     ],
 };
+
+function getElement(id) {
+    return document.getElementById(id);
+}
+
+function setHidden(id, hidden) {
+    const element = getElement(id);
+    if (element)
+        element.hidden = hidden;
+}
+
+function formatTime(timestamp) {
+    return new Date(timestamp).toLocaleTimeString("zh-CN", {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    });
+}
+
+function updateRefreshCopy(section, options = {}) {
+    const id = section === "firewall" ? "firewall-refresh-copy" : "fail2ban-refresh-copy";
+    if (options.loading) {
+        setText(id, `正在刷新... 页面可见时每 ${AUTO_REFRESH_MS / 1000} 秒自动刷新。`);
+        return;
+    }
+
+    const lastRefreshed = state.lastRefreshed[section];
+    if (!lastRefreshed) {
+        setText(id, `页面可见时每 ${AUTO_REFRESH_MS / 1000} 秒自动刷新。`);
+        return;
+    }
+
+    setText(id, `最近刷新：${formatTime(lastRefreshed)} · 页面可见时每 ${AUTO_REFRESH_MS / 1000} 秒自动刷新。`);
+}
+
+function withRefreshLock(key, callback) {
+    if (state.refreshLocks[key])
+        return state.refreshLocks[key];
+
+    const task = Promise.resolve()
+        .then(callback)
+        .finally(() => {
+            state.refreshLocks[key] = null;
+        });
+
+    state.refreshLocks[key] = task;
+    return task;
+}
+
+function stopAutoRefresh() {
+    if (state.autoRefreshTimer) {
+        window.clearInterval(state.autoRefreshTimer);
+        state.autoRefreshTimer = null;
+    }
+}
+
+function refreshVisibleTab() {
+    if (state.superuserAllowed !== true)
+        return Promise.resolve();
+
+    if (state.activeTab === "fail2ban")
+        return refreshFail2BanStatus();
+
+    return refreshFirewallStatus();
+}
+
+function startAutoRefresh() {
+    stopAutoRefresh();
+
+    if (state.superuserAllowed !== true || document.hidden)
+        return;
+
+    state.autoRefreshTimer = window.setInterval(() => {
+        refreshVisibleTab();
+    }, AUTO_REFRESH_MS);
+}
+
+function applyDarkMode(styleOverride) {
+    const style = styleOverride || window.localStorage.getItem("shell:style") || "auto";
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    const darkMode = style === "dark" || (style === "auto" && prefersDark);
+    document.documentElement.classList.toggle("pf-v6-theme-dark", darkMode);
+}
+
+function bindDarkMode() {
+    applyDarkMode();
+
+    window.addEventListener("storage", event => {
+        if (event.key === "shell:style")
+            applyDarkMode();
+    });
+
+    window.addEventListener("cockpit-style", event => {
+        if (event instanceof CustomEvent)
+            applyDarkMode(event.detail?.style);
+    });
+
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    media?.addEventListener?.("change", () => applyDarkMode());
+}
+
+function computeSuperuserAllowed() {
+    if (!state.superuserProxy?.valid || state.superuserProxy.Current === "init")
+        return null;
+
+    return state.superuserProxy.Current !== "none";
+}
+
+function computeSuperuserConfigured() {
+    if (!state.superuserProxy)
+        return null;
+
+    if (state.superuserProxy.Current === "init")
+        return null;
+
+    return (state.superuserProxy.Bridges?.length ?? 0) > 0;
+}
+
+function renderAccessState() {
+    const pageContent = document.querySelector(".page-content");
+    const title = getElement("security-access-title");
+    const copy = getElement("security-access-copy");
+    const button = getElement("security-superuser-button");
+
+    if (state.superuserAllowed === true) {
+        setHidden("security-access-panel", true);
+        if (pageContent)
+            pageContent.hidden = false;
+        startAutoRefresh();
+        return;
+    }
+
+    stopAutoRefresh();
+    setHidden("security-access-panel", false);
+    if (pageContent)
+        pageContent.hidden = true;
+
+    if (!title || !copy || !button)
+        return;
+
+    if (state.superuserAllowed === null) {
+        title.textContent = "正在检查管理员访问...";
+        copy.textContent = "页面会在确认权限状态后自动加载。";
+        button.hidden = true;
+        return;
+    }
+
+    title.textContent = "需要管理员权限";
+    if (state.superuserConfigured === false) {
+        copy.textContent = "当前 Web 控制台处于受限访问模式，但这台主机没有可用的管理员提权方式。请以管理员身份重新登录后再查看安全状态。";
+        button.hidden = true;
+        return;
+    }
+
+    copy.textContent = "当前 Web 控制台正以受限访问模式运行。查看和管理防火墙与 Fail2Ban 需要管理员权限。";
+    button.hidden = false;
+}
+
+function handleSuperuserStateChange(nextAllowed, configured = computeSuperuserConfigured()) {
+    const previous = state.superuserAllowed;
+    state.superuserAllowed = nextAllowed;
+    state.superuserConfigured = configured;
+    renderAccessState();
+
+    if (previous !== nextAllowed && nextAllowed === true) {
+        closeSuperuserModal();
+        refreshVisibleTab();
+    }
+}
+
+function initSuperuser() {
+    state.superuserProxy = cockpit.dbus(null, { bus: "internal" }).proxy("cockpit.Superuser", "/superuser");
+    state.superuserProxy.addEventListener("changed", () => {
+        handleSuperuserStateChange(computeSuperuserAllowed());
+    });
+
+    state.superuserProxy.wait(() => {
+        if (!state.superuserProxy.valid) {
+            state.superuserPermission = cockpit.permission({ admin: true });
+            state.superuserConfigured = false;
+            const updatePermission = () => {
+                handleSuperuserStateChange(state.superuserPermission.allowed, false);
+            };
+            state.superuserPermission.addEventListener("changed", updatePermission);
+            updatePermission();
+            return;
+        }
+
+        handleSuperuserStateChange(computeSuperuserAllowed());
+    });
+}
+
+function clearSuperuserPromptHandler() {
+    if (state.superuserPromptHandler && state.superuserProxy?.removeEventListener) {
+        state.superuserProxy.removeEventListener("Prompt", state.superuserPromptHandler);
+        state.superuserPromptHandler = null;
+    }
+}
+
+function closeSuperuserModal() {
+    clearSuperuserPromptHandler();
+    setHidden("superuser-modal", true);
+    const promptInput = getElement("superuser-prompt-input");
+    if (promptInput)
+        promptInput.value = "";
+}
+
+function setSuperuserError(message = "") {
+    const error = getElement("superuser-modal-error");
+    if (!error)
+        return;
+
+    error.textContent = message;
+    error.hidden = !message;
+}
+
+function setSuperuserBusy(busy) {
+    const submit = getElement("superuser-submit");
+    const cancel = getElement("superuser-cancel");
+    const select = getElement("superuser-method-select");
+    const input = getElement("superuser-prompt-input");
+
+    if (submit)
+        submit.disabled = busy;
+    if (cancel)
+        cancel.disabled = false;
+    if (select)
+        select.disabled = busy;
+    if (input)
+        input.disabled = busy;
+}
+
+function getSuperuserMethodLabel(method) {
+    return state.superuserProxy?.Methods?.[method]?.v?.label?.v || method;
+}
+
+function beginSuperuserAuth(method) {
+    if (!state.superuserProxy)
+        return;
+
+    const title = getElement("superuser-modal-title");
+    const message = getElement("superuser-modal-message");
+    const promptForm = getElement("superuser-prompt-form");
+    const promptLabel = getElement("superuser-prompt-label");
+    const promptInput = getElement("superuser-prompt-input");
+    const submit = getElement("superuser-submit");
+
+    setSuperuserError("");
+    setHidden("superuser-method-field", true);
+    setHidden("superuser-prompt-form", true);
+    if (title)
+        title.textContent = "开启管理员访问";
+    if (message)
+        message.textContent = "正在请求管理员权限...";
+    if (submit)
+        submit.textContent = "认证中...";
+    setSuperuserBusy(true);
+
+    let prompted = false;
+
+    const onPrompt = (_event, promptMessage, promptText, defaultValue, echo, error) => {
+        prompted = true;
+        if (title)
+            title.textContent = "切换到管理员访问";
+        if (message)
+            message.textContent = promptMessage || "请认证以获得管理员权限。";
+        if (promptLabel)
+            promptLabel.textContent = promptText || "密码";
+        if (promptInput) {
+            promptInput.type = echo ? "text" : "password";
+            promptInput.value = defaultValue || "";
+            promptInput.focus();
+        }
+        if (promptForm)
+            promptForm.hidden = false;
+        if (submit)
+            submit.textContent = "认证";
+        setSuperuserBusy(false);
+        setSuperuserError(error ? summarizeOutput(error, false) : "");
+    };
+
+    clearSuperuserPromptHandler();
+    state.superuserPromptHandler = onPrompt;
+    state.superuserProxy.addEventListener("Prompt", onPrompt);
+
+    state.superuserProxy.Start(method)
+        .then(() => {
+            clearSuperuserPromptHandler();
+            if (!prompted)
+                closeSuperuserModal();
+        })
+        .catch(error => {
+            clearSuperuserPromptHandler();
+            const messageText = summarizeOutput(formatError(error), false);
+            if (/cancelled/i.test(messageText)) {
+                closeSuperuserModal();
+                return;
+            }
+
+            if (title)
+                title.textContent = "开启管理员访问失败";
+            if (message)
+                message.textContent = prompted ? "认证未通过，请重试。" : "无法完成管理员认证。";
+            if (submit)
+                submit.textContent = prompted ? "认证" : "重试";
+            setSuperuserBusy(false);
+            setSuperuserError(messageText);
+            if (!prompted)
+                setHidden("superuser-method-field", false);
+        });
+}
+
+function openSuperuserModal() {
+    if (!state.superuserProxy || state.superuserConfigured !== true)
+        return;
+
+    const title = getElement("superuser-modal-title");
+    const message = getElement("superuser-modal-message");
+    const select = getElement("superuser-method-select");
+    const submit = getElement("superuser-submit");
+    const cancel = getElement("superuser-cancel");
+
+    setHidden("superuser-modal", false);
+    setHidden("superuser-method-field", true);
+    setHidden("superuser-prompt-form", true);
+    setSuperuserError("");
+    if (title)
+        title.textContent = "开启管理员访问";
+    if (message)
+        message.textContent = "正在检查可用的管理员访问方式...";
+    if (submit) {
+        submit.textContent = "认证";
+        submit.hidden = false;
+    }
+    if (cancel)
+        cancel.textContent = "取消";
+    setSuperuserBusy(true);
+
+    state.superuserProxy.Stop()
+        .catch(() => undefined)
+        .finally(() => {
+            const methods = Object.keys(state.superuserProxy.Methods || {});
+            const available = methods.length ? methods : state.superuserProxy.Bridges || [];
+
+            if (!available.length) {
+                if (message)
+                    message.textContent = "没有可用的管理员认证方式。";
+                if (submit)
+                    submit.hidden = true;
+                setSuperuserBusy(false);
+                setSuperuserError("当前主机没有可用的 sudo 或 pkexec 提权方式。");
+                return;
+            }
+
+            if (available.length === 1) {
+                beginSuperuserAuth(available[0]);
+                return;
+            }
+
+            if (message)
+                message.textContent = "请选择要使用的管理员认证方式。";
+            if (select) {
+                select.replaceChildren();
+                available.forEach(method => {
+                    const option = document.createElement("option");
+                    option.value = method;
+                    option.textContent = getSuperuserMethodLabel(method);
+                    select.append(option);
+                });
+                select.value = available[0];
+                select.focus();
+            }
+            setHidden("superuser-method-field", false);
+            setSuperuserBusy(false);
+        });
+}
+
+function submitSuperuserModal() {
+    if (getElement("superuser-prompt-form") && !getElement("superuser-prompt-form").hidden) {
+        const promptInput = getElement("superuser-prompt-input");
+        const submit = getElement("superuser-submit");
+        setSuperuserError("");
+        if (submit)
+            submit.textContent = "认证中...";
+        setSuperuserBusy(true);
+        state.superuserProxy?.Answer(promptInput?.value || "");
+        return;
+    }
+
+    const method = getElement("superuser-method-select")?.value;
+    if (method)
+        beginSuperuserAuth(method);
+}
 
 function run(args) {
     return cockpit.spawn(args, {
@@ -584,94 +994,119 @@ async function execute(prefix, label, argsOrScript, options = {}) {
 }
 
 async function refreshFirewallStatus() {
-    updateFirewallServices();
-    setText("firewall-summary-copy", "正在刷新防火墙状态...");
-    setBadge("firewall-status-pill", "加载中");
-    setBadge("firewall-detail-pill", "加载中");
-    setText("firewall-status", "正在刷新防火墙状态...");
-
-    if (state.firewallBackend === "ufw") {
-        const [verboseResult, numberedResult] = await Promise.all([
-            capture(["ufw", "status", "verbose"]),
-            capture(["ufw", "status", "numbered"]),
-        ]);
-
-        const rawOutput = [
-            "== ufw status verbose ==",
-            verboseResult.output,
-            "",
-            "== ufw status numbered ==",
-            numberedResult.output,
-        ].join("\n");
-
-        if (!verboseResult.ok && !numberedResult.ok) {
-            renderFirewallError(numberedResult.output || verboseResult.output, rawOutput);
+    return withRefreshLock("firewall", async () => {
+        if (state.superuserAllowed !== true)
             return;
+
+        updateFirewallServices();
+        updateRefreshCopy("firewall", { loading: true });
+        setText("firewall-summary-copy", "正在刷新防火墙状态...");
+        setBadge("firewall-status-pill", "加载中");
+        setBadge("firewall-detail-pill", "加载中");
+        setText("firewall-status", "正在刷新防火墙状态...");
+
+        try {
+            if (state.firewallBackend === "ufw") {
+                const [verboseResult, numberedResult] = await Promise.all([
+                    capture(["ufw", "status", "verbose"]),
+                    capture(["ufw", "status", "numbered"]),
+                ]);
+
+                const rawOutput = [
+                    "== ufw status verbose ==",
+                    verboseResult.output,
+                    "",
+                    "== ufw status numbered ==",
+                    numberedResult.output,
+                ].join("\n");
+
+                if (!verboseResult.ok && !numberedResult.ok) {
+                    renderFirewallError(numberedResult.output || verboseResult.output, rawOutput);
+                    return;
+                }
+
+                renderFirewallStatus(parseUfwStatus(numberedResult.output, verboseResult.output), rawOutput);
+                return;
+            }
+
+            const [listResult, specResult] = await Promise.all([
+                capture(["iptables", "-L", "INPUT", "-n", "--line-numbers", "-v"]),
+                capture(["iptables", "-S", "INPUT"]),
+            ]);
+
+            const rawOutput = [
+                "== iptables -L INPUT -n --line-numbers -v ==",
+                listResult.output,
+                "",
+                "== iptables -S INPUT ==",
+                specResult.output,
+            ].join("\n");
+
+            if (!listResult.ok) {
+                renderFirewallError(listResult.output, rawOutput);
+                return;
+            }
+
+            renderFirewallStatus(parseIptablesStatus(listResult.output), rawOutput);
+        } finally {
+            state.lastRefreshed.firewall = Date.now();
+            updateRefreshCopy("firewall");
         }
-
-        renderFirewallStatus(parseUfwStatus(numberedResult.output, verboseResult.output), rawOutput);
-        return;
-    }
-
-    const [listResult, specResult] = await Promise.all([
-        capture(["iptables", "-L", "INPUT", "-n", "--line-numbers", "-v"]),
-        capture(["iptables", "-S", "INPUT"]),
-    ]);
-
-    const rawOutput = [
-        "== iptables -L INPUT -n --line-numbers -v ==",
-        listResult.output,
-        "",
-        "== iptables -S INPUT ==",
-        specResult.output,
-    ].join("\n");
-
-    if (!listResult.ok) {
-        renderFirewallError(listResult.output, rawOutput);
-        return;
-    }
-
-    renderFirewallStatus(parseIptablesStatus(listResult.output), rawOutput);
+    });
 }
 
 async function refreshFail2BanStatus() {
-    setText("fail2ban-service-copy", "正在刷新 Fail2Ban 状态...");
-    setBadge("fail2ban-service-pill", "加载中");
-    setText("fail2ban-status", "正在刷新 Fail2Ban 状态...");
+    return withRefreshLock("fail2ban", async () => {
+        if (state.superuserAllowed !== true)
+            return;
 
-    const [serviceResult, statusResult] = await Promise.all([
-        capture([
-            "systemctl",
-            "show",
-            "fail2ban",
-            "--property=Id,Description,LoadState,ActiveState,SubState,UnitFileState,FragmentPath",
-        ]),
-        capture(["fail2ban-client", "status"]),
-    ]);
+        updateRefreshCopy("fail2ban", { loading: true });
+        setText("fail2ban-service-copy", "正在刷新 Fail2Ban 状态...");
+        setBadge("fail2ban-service-pill", "加载中");
+        setText("fail2ban-status", "正在刷新 Fail2Ban 状态...");
 
-    const rawOutput = [
-        "== systemctl show fail2ban ==",
-        serviceResult.output,
-        "",
-        "== fail2ban-client status ==",
-        statusResult.output,
-    ].join("\n");
+        try {
+            const [serviceResult, statusResult] = await Promise.all([
+                capture([
+                    "systemctl",
+                    "show",
+                    "fail2ban",
+                    "--property=Id,Description,LoadState,ActiveState,SubState,UnitFileState,FragmentPath",
+                ]),
+                capture(["fail2ban-client", "status"]),
+            ]);
 
-    renderFail2BanStatus(
-        parseFail2BanOverview(serviceResult.output, statusResult.output, serviceResult.ok, statusResult.ok),
-        rawOutput
-    );
+            const rawOutput = [
+                "== systemctl show fail2ban ==",
+                serviceResult.output,
+                "",
+                "== fail2ban-client status ==",
+                statusResult.output,
+            ].join("\n");
 
-    if (state.currentJail) {
-        const parsed = parseFail2BanOverview(serviceResult.output, statusResult.output, serviceResult.ok, statusResult.ok);
-        if (parsed.jails.includes(state.currentJail))
-            await loadFail2BanJail(state.currentJail, { quiet: true });
-        else
-            clearFail2BanJail("当前 jail 已不在总列表中，请重新选择。");
-    }
+            renderFail2BanStatus(
+                parseFail2BanOverview(serviceResult.output, statusResult.output, serviceResult.ok, statusResult.ok),
+                rawOutput
+            );
+
+            if (state.currentJail) {
+                const parsed = parseFail2BanOverview(serviceResult.output, statusResult.output, serviceResult.ok, statusResult.ok);
+                if (parsed.jails.includes(state.currentJail))
+                    await loadFail2BanJail(state.currentJail, { quiet: true });
+                else
+                    clearFail2BanJail("当前 jail 已不在总列表中，请重新选择。");
+            }
+        } finally {
+            state.lastRefreshed.fail2ban = Date.now();
+            updateRefreshCopy("fail2ban");
+        }
+    });
 }
 
 async function loadFail2BanJail(jail, options = {}) {
+    if (state.superuserAllowed !== true)
+        return;
+
     const jailName = jail.trim();
     if (!jailName) {
         showCommandResult("fail2ban", "jail 查询失败", "jail 名称不能为空。", false);
@@ -716,6 +1151,9 @@ function switchTab(tab) {
     document.querySelectorAll(".tab-panel").forEach(panel => {
         panel.classList.toggle("active", panel.dataset.panel === tab);
     });
+
+    if (state.superuserAllowed === true)
+        refreshVisibleTab();
 }
 
 function switchFirewallBackend(backend, options = {}) {
@@ -750,18 +1188,9 @@ function fillJailInputs(jail) {
 
 async function handleQuickAction(action) {
     const actions = {
-        "ufw-status": async () => {
-            await refreshFirewallStatus();
-        },
         "ufw-enable": () => execute("firewall", "UFW 启用", ["ufw", "--force", "enable"]),
         "ufw-disable": () => execute("firewall", "UFW 禁用", ["ufw", "disable"]),
         "ufw-reload": () => execute("firewall", "UFW 重新加载", ["ufw", "reload"]),
-        "iptables-status": async () => {
-            await refreshFirewallStatus();
-        },
-        "fail2ban-status": async () => {
-            await refreshFail2BanStatus();
-        },
         "fail2ban-start": () => execute("fail2ban", "启动 Fail2Ban", ["systemctl", "start", "fail2ban"]),
         "fail2ban-stop": () => execute("fail2ban", "停止 Fail2Ban", ["systemctl", "stop", "fail2ban"]),
         "fail2ban-restart": () => execute("fail2ban", "重启 Fail2Ban", ["systemctl", "restart", "fail2ban"]),
@@ -774,10 +1203,10 @@ async function handleQuickAction(action) {
 
     await handler();
 
-    if (action !== "ufw-status" && action !== "iptables-status" && (action.startsWith("ufw") || action.startsWith("iptables")))
+    if (action.startsWith("ufw") || action.startsWith("iptables"))
         await refreshFirewallStatus();
 
-    if (action.startsWith("fail2ban") && action !== "fail2ban-status")
+    if (action.startsWith("fail2ban"))
         await refreshFail2BanStatus();
 }
 
@@ -895,28 +1324,46 @@ function bindEvents() {
         button.addEventListener("click", () => handleQuickAction(button.dataset.action));
     });
 
-    document.getElementById("refresh-all")?.addEventListener("click", async () => {
-        await refreshFirewallStatus();
-        await refreshFail2BanStatus();
-    });
-
-    document.getElementById("firewall-refresh")?.addEventListener("click", refreshFirewallStatus);
-    document.getElementById("fail2ban-refresh")?.addEventListener("click", refreshFail2BanStatus);
-
     document.getElementById("ufw-add-form")?.addEventListener("submit", handleUfwAdd);
     document.getElementById("ufw-delete-form")?.addEventListener("submit", handleUfwDelete);
     document.getElementById("iptables-add-form")?.addEventListener("submit", handleIptablesAdd);
     document.getElementById("iptables-delete-form")?.addEventListener("submit", handleIptablesDelete);
     document.getElementById("fail2ban-jail-form")?.addEventListener("submit", handleFail2BanJail);
     document.getElementById("fail2ban-unban-form")?.addEventListener("submit", handleFail2BanUnban);
+
+    document.getElementById("security-superuser-button")?.addEventListener("click", openSuperuserModal);
+    document.getElementById("superuser-submit")?.addEventListener("click", submitSuperuserModal);
+    document.getElementById("superuser-cancel")?.addEventListener("click", () => {
+        state.superuserProxy?.Stop()?.catch(() => undefined);
+        closeSuperuserModal();
+    });
+    document.getElementById("superuser-prompt-form")?.addEventListener("submit", event => {
+        event.preventDefault();
+        submitSuperuserModal();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+            stopAutoRefresh();
+            return;
+        }
+
+        if (state.superuserAllowed === true) {
+            refreshVisibleTab();
+            startAutoRefresh();
+        }
+    });
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
     bindEvents();
+    bindDarkMode();
+    initSuperuser();
+    updateRefreshCopy("firewall");
+    updateRefreshCopy("fail2ban");
     renderServiceLinks("fail2ban-service-links", SERVICE_LINKS.fail2ban);
     clearFail2BanJail("可从 jail 列表快速打开，也可以手动输入名称查看。");
     switchTab(state.activeTab);
     switchFirewallBackend(state.firewallBackend, { refresh: false });
-    await refreshFirewallStatus();
-    await refreshFail2BanStatus();
+    renderAccessState();
 });
