@@ -257,6 +257,11 @@ pre {
     font-weight: 500;
 }
 
+.section-toolbar h3.section-title-lg {
+    font-size: 1.25rem;
+    line-height: 1.25;
+}
+
 .summary-grid,
 .metric-grid,
 .operation-grid,
@@ -367,6 +372,23 @@ pre {
 
 .empty-state {
     padding: 16px;
+    color: var(--text-secondary);
+}
+
+.table-pagination,
+.table-pagination__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.table-pagination {
+    margin-top: 12px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.table-pagination__meta {
     color: var(--text-secondary);
 }
 

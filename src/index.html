@@ -42,7 +42,6 @@
                             <h2>防火墙</h2>
                             <p>配置 UFW 或 iptables 规则，并查看当前运行状态。</p>
                         </div>
-                        <p class="section-meta" id="firewall-refresh-copy">页面可见时每 15 秒自动刷新。</p>
                     </div>
 
                     <div class="card-section">
@@ -99,13 +98,19 @@
                             </table>
                             <div class="empty-state" id="firewall-rules-empty" hidden>暂无规则数据。</div>
                         </div>
+                        <div class="table-pagination" id="firewall-rules-pagination" hidden>
+                            <span class="table-pagination__meta" id="firewall-rules-page-meta">第 1 / 1 页</span>
+                            <div class="table-pagination__actions">
+                                <button class="secondary-button" id="firewall-rules-prev" type="button">上一页</button>
+                                <button class="secondary-button" id="firewall-rules-next" type="button">下一页</button>
+                            </div>
+                        </div>
                     </div>
 
                     <section class="card-section backend-panel active" data-backend-panel="ufw">
                         <div class="section-toolbar">
                             <div>
-                                <h3>UFW 配置</h3>
-                                <p class="section-copy">适合 Debian / Ubuntu 一类主机。</p>
+                                <h3 class="section-title-lg">UFW 配置</h3>
                             </div>
                             <div class="toolbar compact-toolbar">
                                 <button class="secondary-button" data-action="ufw-enable" type="button">启用</button>
@@ -165,7 +170,7 @@
                     <section class="card-section backend-panel" data-backend-panel="iptables">
                         <div class="section-toolbar">
                             <div>
-                                <h3>iptables 配置</h3>
+                                <h3 class="section-title-lg">iptables 配置</h3>
                                 <p class="section-copy">聚焦 INPUT 链的常见插入和删除操作。</p>
                             </div>
                         </div>
@@ -233,7 +238,6 @@
                             <h2>Fail2Ban</h2>
                             <p>查看服务状态、jail 列表与单个 jail 的处理情况。</p>
                         </div>
-                        <p class="section-meta" id="fail2ban-refresh-copy">页面可见时每 15 秒自动刷新。</p>
                     </div>
 
                     <div class="card-section">
