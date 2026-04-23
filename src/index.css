@@ -252,14 +252,9 @@ pre {
 
 .section-title-row h3,
 .section-toolbar h3 {
-    font-size: 1rem;
-    line-height: 1.35;
-    font-weight: 500;
-}
-
-.section-toolbar h3.section-title-lg {
     font-size: 1.25rem;
     line-height: 1.25;
+    font-weight: 500;
 }
 
 .summary-grid,
