@@ -33,13 +33,19 @@
             <section>
                 <div class="pf-v6-c-card pf-m-plain security-shell">
                     <div class="security-shell__tabs">
-                        <nav class="pf-v6-c-tabs card-tabs" aria-label="安全分类" role="tablist">
-                            <button class="pf-v6-c-tabs__link tab-button active" id="tab-firewall" data-tab="firewall" type="button" role="tab" aria-selected="true" aria-controls="panel-firewall">
-                                <span class="pf-v6-c-tabs__item-text">防火墙</span>
-                            </button>
-                            <button class="pf-v6-c-tabs__link tab-button" id="tab-fail2ban" data-tab="fail2ban" type="button" role="tab" aria-selected="false" aria-controls="panel-fail2ban">
-                                <span class="pf-v6-c-tabs__item-text">Fail2Ban</span>
-                            </button>
+                        <nav class="pf-v6-c-tabs" aria-label="安全分类">
+                            <ul class="pf-v6-c-tabs__list" role="tablist">
+                                <li class="pf-v6-c-tabs__item" role="presentation">
+                                    <button class="pf-v6-c-tabs__link tab-button active" id="tab-firewall" data-tab="firewall" type="button" role="tab" aria-selected="true" aria-controls="panel-firewall">
+                                        <span class="pf-v6-c-tabs__item-text">防火墙</span>
+                                    </button>
+                                </li>
+                                <li class="pf-v6-c-tabs__item" role="presentation">
+                                    <button class="pf-v6-c-tabs__link tab-button" id="tab-fail2ban" data-tab="fail2ban" type="button" role="tab" aria-selected="false" aria-controls="panel-fail2ban">
+                                        <span class="pf-v6-c-tabs__item-text">Fail2Ban</span>
+                                    </button>
+                                </li>
+                            </ul>
                         </nav>
                     </div>
 
