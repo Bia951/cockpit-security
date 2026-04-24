@@ -443,8 +443,13 @@ pre {
     margin-top: var(--pf-t--global--spacer--md);
 }
 
-.table-pagination__meta {
-    color: var(--pf-t--global--text--color--subtle);
+.table-pagination__actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.table-pagination__actions .pf-v6-c-button {
+    min-width: 5.5rem;
 }
 
 .pf-v6-c-button,
