@@ -19,15 +19,15 @@ The current UI adds a new “安全” entry in Cockpit with two areas:
 
 On Debian/Ubuntu:
 
-    sudo apt install nodejs make
+    sudo apt install nodejs npm make
 
 On Fedora:
 
-    sudo dnf install nodejs make
+    sudo dnf install nodejs npm make
 
 On openSUSE Tumbleweed and Leap:
 
-    sudo zypper in nodejs make
+    sudo zypper in nodejs npm make
 
 # Getting and building the source
 
@@ -36,12 +36,15 @@ These commands check out the source and build it into the `dist/` directory:
 ```sh
 git clone https://github.com/Bia951/cockpit-security.git
 cd cockpit-security
+npm install
 make build
 ```
 
-The build chain is intentionally simple and does not rely on npm:
+The build chain is intentionally simple and keeps PatternFly bundled with the plugin:
 
+- `npm install` downloads the frontend dependency set and creates the lockfile
 - `node build.js` copies the package files from `src/` into `dist/`
+- `node build.js` also copies `@patternfly/patternfly` assets into `dist/`, so the plugin does not depend on Cockpit's shared PatternFly bundle
 - `make build` is a thin wrapper around that command
 - `make watch` watches `src/` and rebuilds on change
 
@@ -116,7 +119,7 @@ The repository is organized like this:
 - If the target host does not have `ufw`, `iptables`, or `fail2ban-client`, the command error is shown directly in the UI.
 - The current iptables integration only changes runtime rules; it does not persist them across reboots.
 - This repository currently ships a lightweight build chain. It does not yet reintroduce the full starter-kit packaging, translation, and CI stack.
-- The current build only needs `node` and `make`; it intentionally avoids npm because the plugin is plain HTML/CSS/JS without a frontend dependency graph.
+- The current build uses `npm` only to vendor frontend assets such as PatternFly into the plugin package; the UI code itself is still plain HTML/CSS/JS.
 
 # Further reading
 

@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Cockpit 安全管理插件">
     <title>安全</title>
-    <link rel="stylesheet" href="index.css">
+    <link href="patternfly.css" rel="stylesheet">
     <link href="../../static/branding.css" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
     <script src="../base1/cockpit.js"></script>
     <script src="index.js" defer></script>
 </head>
@@ -15,14 +16,14 @@
         <section class="access-state" id="security-access-panel" hidden>
             <div class="pf-v6-c-empty-state pf-m-lg security-empty-state">
                 <div class="pf-v6-c-empty-state__content">
-                    <div class="pf-v6-c-empty-state__icon">
-                        <div class="pf-v6-c-spinner" id="security-access-spinner" aria-hidden="true"></div>
+                    <div class="pf-v6-c-empty-state__icon security-empty-state__icon">
+                        <div class="pf-v6-c-spinner security-loading-spinner" id="security-access-spinner" aria-hidden="true"></div>
                     </div>
                     <div class="pf-v6-c-empty-state__header">
                         <h1 class="pf-v6-c-title pf-m-2xl" id="security-access-title">正在加载...</h1>
                     </div>
                     <div class="pf-v6-c-empty-state__body" id="security-access-copy">正在检查当前会话的管理员权限。</div>
-                    <div class="pf-v6-c-empty-state__footer">
+                    <div class="pf-v6-c-empty-state__footer security-empty-state__footer">
                         <button class="pf-v6-c-button pf-m-primary" id="security-access-action" type="button" hidden>Turn on administrative access</button>
                     </div>
                 </div>
