@@ -529,6 +529,10 @@ pre {
     background: var(--pf-t--global--icon--color--brand--hover);
 }
 
+:root.pf-v6-theme-dark .pf-v6-c-button.pf-m-primary {
+    color: #151515;
+}
+
 .pf-v6-c-button.pf-m-secondary,
 .pf-v6-c-button.pf-m-control,
 .service-link,
@@ -556,6 +560,10 @@ pre {
     background: #a30000;
 }
 
+:root.pf-v6-theme-dark .pf-v6-c-button.pf-m-danger {
+    color: #151515;
+}
+
 .pf-v6-c-button.pf-m-link {
     padding: 0;
     border: none;
@@ -578,6 +586,10 @@ pre {
 
 .backend-button.active:hover {
     background: var(--pf-t--global--icon--color--brand--hover);
+}
+
+:root.pf-v6-theme-dark .backend-button.active {
+    color: #151515;
 }
 
 .toolbar {
