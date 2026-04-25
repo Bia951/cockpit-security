@@ -1,4 +1,5 @@
 const AUTO_REFRESH_MS = 15000;
+const SIDEBAR_BREAKPOINT = "(min-width: 75rem)";
 
 const state = {
     activeTab: "firewall",
@@ -91,6 +92,34 @@ function stopAutoRefresh() {
         window.clearInterval(state.autoRefreshTimer);
         state.autoRefreshTimer = null;
     }
+}
+
+function isDesktopSidebar() {
+    return window.matchMedia?.(SIDEBAR_BREAKPOINT).matches ?? window.innerWidth >= 1200;
+}
+
+function setSidebarExpanded(expanded) {
+    const sidebar = getElement("security-page-sidebar");
+    const toggle = getElement("security-sidebar-toggle");
+    const backdrop = getElement("security-sidebar-backdrop");
+    const next = !isDesktopSidebar() && expanded;
+
+    if (sidebar)
+        sidebar.classList.toggle("pf-m-expanded", next);
+    if (toggle)
+        toggle.setAttribute("aria-expanded", next ? "true" : "false");
+    if (backdrop)
+        backdrop.hidden = !next;
+
+    document.body.classList.toggle("security-sidebar-open", next);
+}
+
+function toggleSidebar() {
+    const sidebar = getElement("security-page-sidebar");
+    if (!sidebar)
+        return;
+
+    setSidebarExpanded(!sidebar.classList.contains("pf-m-expanded"));
 }
 
 function refreshVisibleTab() {
@@ -1249,6 +1278,8 @@ function switchTab(tab) {
         panel.hidden = !active;
     });
 
+    setSidebarExpanded(false);
+
     if (state.superuserAllowed === true)
         refreshVisibleTab();
 }
@@ -1430,6 +1461,8 @@ function bindEvents() {
     document.getElementById("security-auth-form")?.addEventListener("input", handleSuperuserDialogInput);
     document.getElementById("security-auth-form")?.addEventListener("change", handleSuperuserDialogInput);
     document.getElementById("security-auth-cancel")?.addEventListener("click", () => closeSuperuserDialog());
+    document.getElementById("security-sidebar-toggle")?.addEventListener("click", toggleSidebar);
+    document.getElementById("security-sidebar-backdrop")?.addEventListener("click", () => setSidebarExpanded(false));
     document.getElementById("security-auth-dialog")?.addEventListener("click", event => {
         if (event.target?.id === "security-auth-dialog")
             closeSuperuserDialog();
@@ -1478,7 +1511,11 @@ function bindEvents() {
     document.addEventListener("keydown", event => {
         if (event.key === "Escape" && state.superuserDialog.open)
             closeSuperuserDialog();
+        else if (event.key === "Escape")
+            setSidebarExpanded(false);
     });
+
+    window.matchMedia?.(SIDEBAR_BREAKPOINT)?.addEventListener?.("change", () => setSidebarExpanded(false));
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1489,6 +1526,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     clearFail2BanJail("可从 jail 列表快速打开，也可以手动输入名称查看。");
     switchTab(state.activeTab);
     switchFirewallBackend(state.firewallBackend, { refresh: false });
+    setSidebarExpanded(false);
     renderSuperuserDialog();
     renderAccessState();
 });
