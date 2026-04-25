@@ -13,67 +13,44 @@
 </head>
 <body>
     <div class="pf-v6-c-page security-page">
-        <header class="pf-v6-c-masthead pf-m-display-inline pf-m-inset-xl security-masthead">
-            <div class="pf-v6-c-masthead__main">
-                <button class="pf-v6-c-button pf-m-plain security-sidebar-toggle" id="security-sidebar-toggle" type="button" aria-label="Toggle navigation" aria-controls="security-page-sidebar" aria-expanded="false">Sections</button>
-                <div class="pf-v6-c-masthead__brand security-masthead__brand">
-                    <div>
-                        <p class="security-masthead__eyebrow">Cockpit security</p>
-                        <h1 class="pf-v6-c-title pf-m-2xl security-masthead__title">安全中心</h1>
-                        <p class="security-masthead__copy">统一管理防火墙与 Fail2Ban 运行状态、规则和服务操作。</p>
+        <section class="access-state" id="security-access-panel" hidden>
+            <div class="pf-v6-c-empty-state pf-m-lg security-empty-state">
+                <div class="pf-v6-c-empty-state__content">
+                    <div class="pf-v6-c-empty-state__icon">
+                        <div class="pf-v6-c-spinner" id="security-access-spinner" aria-hidden="true"></div>
+                    </div>
+                    <div class="pf-v6-c-empty-state__header">
+                        <h1 class="pf-v6-c-title pf-m-2xl" id="security-access-title">正在加载...</h1>
+                    </div>
+                    <div class="pf-v6-c-empty-state__body" id="security-access-copy">正在检查当前会话的管理员权限。</div>
+                    <div class="pf-v6-c-empty-state__footer">
+                        <button class="pf-v6-c-button pf-m-primary" id="security-access-action" type="button" hidden>Turn on administrative access</button>
                     </div>
                 </div>
             </div>
-            <div class="pf-v6-c-masthead__content security-masthead__content">
-                <span class="pf-v6-c-label security-masthead__label">Firewall + Fail2Ban</span>
-            </div>
-        </header>
+        </section>
 
-        <aside class="pf-v6-c-page__sidebar" id="security-page-sidebar">
-            <div class="pf-v6-c-page__sidebar-header">
-                <div class="pf-v6-c-page__sidebar-title">Sections</div>
-            </div>
-            <div class="pf-v6-c-page__sidebar-body pf-m-page-insets pf-m-fill">
-                <nav class="security-sidebar-nav" aria-label="安全分类" role="tablist">
-                    <button class="tab-button security-nav-button active" id="tab-firewall" data-tab="firewall" type="button" role="tab" aria-selected="true" aria-controls="panel-firewall">
-                        <span class="security-nav-button__title">防火墙</span>
-                        <span class="security-nav-button__copy">UFW 与 iptables 规则、状态和运行控制</span>
-                    </button>
-                    <button class="tab-button security-nav-button" id="tab-fail2ban" data-tab="fail2ban" type="button" role="tab" aria-selected="false" aria-controls="panel-fail2ban">
-                        <span class="security-nav-button__title">Fail2Ban</span>
-                        <span class="security-nav-button__copy">服务状态、jail 详情与手动解封操作</span>
-                    </button>
-                </nav>
-                <div class="security-sidebar-note">
-                    <p class="security-sidebar-note__title">布局说明</p>
-                    <p class="security-sidebar-note__copy">桌面端固定侧边导航，窄屏可从顶部打开导航切换模块。</p>
-                </div>
-            </div>
-        </aside>
+        <main class="page-content" hidden>
+            <section>
+                <div class="pf-v6-c-card pf-m-plain security-shell">
+                    <div class="security-shell__tabs">
+                        <nav class="pf-v6-c-tabs" aria-label="安全分类">
+                            <ul class="pf-v6-c-tabs__list" role="tablist">
+                                <li class="pf-v6-c-tabs__item" role="presentation">
+                                    <button class="pf-v6-c-tabs__link tab-button active" id="tab-firewall" data-tab="firewall" type="button" role="tab" aria-selected="true" aria-controls="panel-firewall">
+                                        <span class="pf-v6-c-tabs__item-text">防火墙</span>
+                                    </button>
+                                </li>
+                                <li class="pf-v6-c-tabs__item" role="presentation">
+                                    <button class="pf-v6-c-tabs__link tab-button" id="tab-fail2ban" data-tab="fail2ban" type="button" role="tab" aria-selected="false" aria-controls="panel-fail2ban">
+                                        <span class="pf-v6-c-tabs__item-text">Fail2Ban</span>
+                                    </button>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
 
-        <div class="pf-v6-c-page__main-container pf-m-fill">
-            <main class="pf-v6-c-page__main" id="security-main" tabindex="-1">
-                <section class="pf-v6-c-page__main-section pf-m-fill security-main-section">
-                    <section class="access-state" id="security-access-panel" hidden>
-                        <div class="pf-v6-c-empty-state pf-m-lg security-empty-state">
-                            <div class="pf-v6-c-empty-state__content">
-                                <div class="pf-v6-c-empty-state__icon security-empty-state__icon">
-                                    <div class="pf-v6-c-spinner security-loading-spinner" id="security-access-spinner" aria-hidden="true"></div>
-                                </div>
-                                <div class="pf-v6-c-empty-state__header">
-                                    <h1 class="pf-v6-c-title pf-m-2xl" id="security-access-title">正在加载...</h1>
-                                </div>
-                                <div class="pf-v6-c-empty-state__body" id="security-access-copy">正在检查当前会话的管理员权限。</div>
-                                <div class="pf-v6-c-empty-state__footer security-empty-state__footer">
-                                    <button class="pf-v6-c-button pf-m-primary" id="security-access-action" type="button" hidden>Turn on administrative access</button>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <div class="page-content" hidden>
-                        <div class="pf-v6-c-card pf-m-plain security-shell">
-                            <section class="tab-panel active" id="panel-firewall" data-panel="firewall" role="tabpanel" aria-labelledby="tab-firewall">
+                    <section class="tab-panel active" id="panel-firewall" data-panel="firewall" role="tabpanel" aria-labelledby="tab-firewall">
                         <div class="panel-intro">
                             <div>
                                 <h2 class="pf-v6-c-title pf-m-2xl">防火墙</h2>
@@ -306,7 +283,7 @@
                                 </div>
                             </section>
                         </div>
-                            </section>
+                    </section>
 
                     <section class="tab-panel" id="panel-fail2ban" data-panel="fail2ban" role="tabpanel" aria-labelledby="tab-fail2ban">
                         <div class="panel-intro">
@@ -442,13 +419,9 @@
                             </section>
                         </div>
                     </section>
-                        </div>
-                    </div>
-                </section>
-            </main>
-        </div>
-
-        <button class="security-sidebar-backdrop" id="security-sidebar-backdrop" type="button" aria-label="Close navigation" hidden></button>
+                </div>
+            </section>
+        </main>
 
         <div class="auth-dialog-backdrop" id="security-auth-dialog" hidden>
             <div class="pf-v6-c-modal-box auth-dialog" role="dialog" aria-modal="true" aria-labelledby="security-auth-title">
