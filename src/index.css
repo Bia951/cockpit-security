@@ -26,6 +26,7 @@
     --pf-t--global--spacer--lg: 1.5rem;
     --pf-t--global--spacer--xl: 2rem;
     --pf-t--global--spacer--2xl: 3rem;
+    --security-shell-radius: 24px;
     --pf-t--global--font--family--body: "Red Hat Text", "PingFang SC", "Noto Sans SC", sans-serif;
     --pf-t--global--font--family--heading: "Red Hat Display", "Red Hat Text", "PingFang SC", "Noto Sans SC", sans-serif;
     --pf-t--global--font--family--mono: "Red Hat Mono", "SFMono-Regular", "Menlo", monospace;
@@ -190,11 +191,15 @@ pre {
 }
 
 .security-shell {
+    position: relative;
+    isolation: isolate;
     overflow: hidden;
     border: none;
-    border-radius: 24px;
+    border-radius: var(--security-shell-radius);
     background: var(--pf-t--global--background--color--secondary);
+    background-clip: padding-box;
     box-shadow: var(--pf-t--global--box-shadow--sm);
+    clip-path: inset(0 round var(--security-shell-radius));
 }
 
 .pf-v6-theme-dark .security-shell {
@@ -204,7 +209,9 @@ pre {
 .security-shell__tabs {
     padding: 0 var(--pf-t--global--spacer--xl);
     border-bottom: 1px solid var(--pf-t--global--border--color--subtle);
+    border-radius: var(--security-shell-radius) var(--security-shell-radius) 0 0;
     background: var(--pf-t--global--background--color--secondary);
+    background-clip: padding-box;
 }
 
 .pf-v6-c-tabs__list {
@@ -441,6 +448,25 @@ pre {
     align-items: center;
     justify-content: space-between;
     margin-top: var(--pf-t--global--spacer--md);
+}
+
+.table-pagination__jump {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--pf-t--global--text--color--subtle);
+    font-weight: 700;
+}
+
+.table-pagination__jump label {
+    display: inline;
+}
+
+.table-pagination__page-input {
+    width: 5.5rem;
+    min-height: 2.4rem;
+    padding: 0.52rem 0.75rem;
+    text-align: center;
 }
 
 .table-pagination__actions {
@@ -811,6 +837,10 @@ select {
     .table-pagination {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .table-pagination__jump {
+        width: 100%;
     }
 
     .compact-toolbar {

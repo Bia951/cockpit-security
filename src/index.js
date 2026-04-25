@@ -692,11 +692,31 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
     });
 }
 
+function getFirewallRuleTotalPages() {
+    return Math.max(1, Math.ceil(state.firewallRules.rows.length / state.firewallRules.pageSize));
+}
+
+function updateFirewallRulePageOptions(totalPages) {
+    const options = document.getElementById("firewall-rules-page-options");
+    if (!options)
+        return;
+
+    const fragment = document.createDocumentFragment();
+    for (let page = 1; page <= totalPages; page++) {
+        const option = document.createElement("option");
+        option.value = String(page);
+        option.label = `第 ${page} 页`;
+        fragment.append(option);
+    }
+    options.replaceChildren(fragment);
+}
+
 function renderFirewallRulePagination(totalRows) {
     const container = document.getElementById("firewall-rules-pagination");
     const meta = document.getElementById("firewall-rules-page-meta");
     const prev = document.getElementById("firewall-rules-prev");
     const next = document.getElementById("firewall-rules-next");
+    const jumpInput = document.getElementById("firewall-rules-page-jump");
 
     if (!container || !meta || !prev || !next)
         return;
@@ -706,6 +726,12 @@ function renderFirewallRulePagination(totalRows) {
     meta.textContent = `第 ${state.firewallRules.page} / ${totalPages} 页`;
     prev.disabled = state.firewallRules.page <= 1;
     next.disabled = state.firewallRules.page >= totalPages;
+    updateFirewallRulePageOptions(totalPages);
+
+    if (jumpInput) {
+        jumpInput.value = String(state.firewallRules.page);
+        jumpInput.setAttribute("aria-label", `跳转到页码，共 ${totalPages} 页`);
+    }
 }
 
 function renderFirewallRulesTable() {
@@ -718,6 +744,19 @@ function renderFirewallRulesTable() {
     const pageRows = rows.slice(start, start + pageSize);
     renderTable("firewall-rules-head", "firewall-rules-body", "firewall-rules-empty", columns, pageRows, emptyText);
     renderFirewallRulePagination(rows.length);
+}
+
+function jumpToFirewallRulesPage(value) {
+    const pageText = String(value || "").trim();
+    if (!/^\d+$/.test(pageText)) {
+        renderFirewallRulesTable();
+        return;
+    }
+
+    const totalPages = getFirewallRuleTotalPages();
+    const nextPage = Math.min(Math.max(1, Number(pageText)), totalPages);
+    state.firewallRules.page = nextPage;
+    renderFirewallRulesTable();
 }
 
 function renderMetricCards(id, metrics) {
@@ -1404,9 +1443,22 @@ function bindEvents() {
         renderFirewallRulesTable();
     });
     document.getElementById("firewall-rules-next")?.addEventListener("click", () => {
-        const totalPages = Math.max(1, Math.ceil(state.firewallRules.rows.length / state.firewallRules.pageSize));
+        const totalPages = getFirewallRuleTotalPages();
         state.firewallRules.page = Math.min(totalPages, state.firewallRules.page + 1);
         renderFirewallRulesTable();
+    });
+    document.getElementById("firewall-rules-page-go")?.addEventListener("click", () => {
+        jumpToFirewallRulesPage(document.getElementById("firewall-rules-page-jump")?.value);
+    });
+    document.getElementById("firewall-rules-page-jump")?.addEventListener("change", event => {
+        jumpToFirewallRulesPage(event.target.value);
+    });
+    document.getElementById("firewall-rules-page-jump")?.addEventListener("keydown", event => {
+        if (event.key !== "Enter")
+            return;
+
+        event.preventDefault();
+        jumpToFirewallRulesPage(event.target.value);
     });
     document.getElementById("fail2ban-jail-form")?.addEventListener("submit", handleFail2BanJail);
     document.getElementById("fail2ban-unban-form")?.addEventListener("submit", handleFail2BanUnban);
