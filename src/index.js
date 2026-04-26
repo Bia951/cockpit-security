@@ -10,6 +10,12 @@ const state = {
         page: 1,
         pageSize: 10,
     },
+    firewallDialog: {
+        open: false,
+        mode: "",
+        busy: false,
+        error: "",
+    },
     currentJail: "",
     autoRefreshTimer: null,
     refreshLocks: {
@@ -663,6 +669,8 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
     if (!head || !body || !empty)
         return;
 
+    const normalizedRows = rows.map(row => Array.isArray(row) ? { cells: row } : row);
+    const hasActions = normalizedRows.some(row => row.delete);
     const headRow = document.createElement("tr");
     columns.forEach(column => {
         const th = document.createElement("th");
@@ -670,24 +678,57 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
         th.textContent = column;
         headRow.append(th);
     });
+    if (hasActions) {
+        const th = document.createElement("th");
+        th.scope = "col";
+        th.textContent = "操作";
+        headRow.append(th);
+    }
 
     head.replaceChildren(headRow);
     body.replaceChildren();
 
-    if (!rows.length) {
+    if (!normalizedRows.length) {
         empty.hidden = false;
         empty.textContent = emptyText;
         return;
     }
 
     empty.hidden = true;
-    rows.forEach(row => {
+    normalizedRows.forEach(row => {
         const tr = document.createElement("tr");
-        row.forEach(cell => {
-            const td = document.createElement("td");
-            td.textContent = cell;
-            tr.append(td);
+        tr.className = "pf-v6-c-table__tr";
+
+        row.cells.forEach((cell, index) => {
+            const element = document.createElement(index === 0 ? "th" : "td");
+            if (index === 0) {
+                element.scope = "row";
+                element.className = "pf-v6-c-table__th data-table__primary";
+            } else {
+                element.className = "pf-v6-c-table__td";
+            }
+            element.textContent = cell;
+            tr.append(element);
         });
+
+        if (hasActions) {
+            const actionCell = document.createElement("td");
+            actionCell.className = "pf-v6-c-table__td data-table__action";
+
+            if (row.delete) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "pf-v6-c-button pf-m-link pf-m-inline data-table__delete";
+                button.textContent = row.delete.label || "删除";
+                button.addEventListener("click", () => {
+                    deleteFirewallRule(row.delete);
+                });
+                actionCell.append(button);
+            }
+
+            tr.append(actionCell);
+        }
+
         body.append(tr);
     });
 }
@@ -891,7 +932,14 @@ function parseUfwStatus(numberedOutput, verboseOutput) {
             ["规则数", String(rules.length)],
         ].filter(Boolean),
         columns: ["编号", "目标", "动作", "方向", "来源"],
-        rows: rules.map(rule => [rule.number, rule.to, rule.action, rule.direction, rule.from]),
+        rows: rules.map(rule => ({
+            cells: [rule.number, rule.to, rule.action, rule.direction, rule.from],
+            delete: {
+                kind: "ufw",
+                value: rule.number,
+                label: "删除",
+            },
+        })),
         emptyText: isActive ? "当前没有 UFW 规则。" : "UFW 未启用，暂无规则可显示。",
     };
 }
@@ -948,14 +996,21 @@ function parseIptablesStatus(listOutput) {
             ["规则数", String(rules.length)],
         ],
         columns: ["行号", "目标", "协议", "来源", "目的地", "匹配"],
-        rows: rules.map(rule => [
-            rule.num,
-            rule.target,
-            rule.protocol,
-            rule.source,
-            rule.destination,
-            normalizeWhitespace(rule.detail || rule.opt),
-        ]),
+        rows: rules.map(rule => ({
+            cells: [
+                rule.num,
+                rule.target,
+                rule.protocol,
+                rule.source,
+                rule.destination,
+                normalizeWhitespace(rule.detail || rule.opt),
+            ],
+            delete: {
+                kind: "iptables",
+                value: rule.num,
+                label: "删除",
+            },
+        })),
         emptyText: "当前没有 iptables INPUT 规则。",
     };
 }
@@ -1237,10 +1292,10 @@ async function loadFail2BanJail(jail, options = {}) {
 function switchTab(tab) {
     state.activeTab = tab;
 
-    document.querySelectorAll(".tab-button").forEach(button => {
+    document.querySelectorAll(".tab-link").forEach(button => {
         const active = button.dataset.tab === tab;
-        button.classList.toggle("active", active);
-        button.setAttribute("aria-selected", active ? "true" : "false");
+        button.classList.toggle("pf-m-current", active);
+        button.setAttribute("aria-current", active ? "page" : "false");
     });
 
     document.querySelectorAll(".tab-panel").forEach(panel => {
@@ -1248,6 +1303,10 @@ function switchTab(tab) {
         panel.classList.toggle("active", active);
         panel.hidden = !active;
     });
+
+    setHidden("firewall-backend-toggle", tab !== "firewall");
+    if (tab !== "firewall" && state.firewallDialog.open)
+        closeFirewallDialog();
 
     if (state.superuserAllowed === true)
         refreshVisibleTab();
@@ -1258,16 +1317,13 @@ function switchFirewallBackend(backend, options = {}) {
 
     document.querySelectorAll(".backend-button").forEach(button => {
         const active = button.dataset.backend === backend;
-        button.classList.toggle("active", active);
+        button.classList.toggle("pf-m-selected", active);
         button.setAttribute("aria-pressed", active ? "true" : "false");
     });
 
-    document.querySelectorAll(".backend-panel").forEach(panel => {
-        const active = panel.dataset.backendPanel === backend;
-        panel.classList.toggle("active", active);
-        panel.hidden = !active;
-    });
-
+    updateFirewallActionBar();
+    if (state.firewallDialog.open)
+        closeFirewallDialog();
     updateFirewallServices();
     if (options.refresh !== false)
         refreshFirewallStatus();
@@ -1287,9 +1343,211 @@ function fillJailInputs(jail) {
         unbanInput.value = jail;
 }
 
+function updateFirewallActionBar() {
+    const isUfw = state.firewallBackend === "ufw";
+    const addButton = getElement("firewall-add-button");
+
+    setHidden("firewall-enable-button", !isUfw);
+    setHidden("firewall-disable-button", !isUfw);
+    setHidden("firewall-reload-button", !isUfw);
+
+    if (addButton)
+        addButton.textContent = isUfw ? "添加规则" : "插入规则";
+}
+
+function resetFirewallDialog() {
+    state.firewallDialog = {
+        open: false,
+        mode: "",
+        busy: false,
+        error: "",
+    };
+}
+
+function updateFirewallDialog(patch) {
+    state.firewallDialog = {
+        ...state.firewallDialog,
+        ...patch,
+    };
+    renderFirewallDialog();
+}
+
+function setFirewallRuleActionOptions() {
+    const select = getElement("firewall-rule-action");
+    if (!select)
+        return;
+
+    const options = state.firewallBackend === "ufw"
+        ? [
+            { value: "allow", label: "allow" },
+            { value: "deny", label: "deny" },
+            { value: "reject", label: "reject" },
+        ]
+        : [
+            { value: "ACCEPT", label: "ACCEPT" },
+            { value: "DROP", label: "DROP" },
+            { value: "REJECT", label: "REJECT" },
+        ];
+
+    select.replaceChildren();
+    options.forEach(option => {
+        const element = document.createElement("option");
+        element.value = option.value;
+        element.textContent = option.label;
+        select.append(element);
+    });
+}
+
+function renderFirewallDialog() {
+    const dialog = getElement("firewall-modal");
+    const title = getElement("firewall-modal-title");
+    const copy = getElement("firewall-modal-copy");
+    const form = getElement("firewall-rule-form");
+    const alert = getElement("firewall-modal-alert");
+    const submit = getElement("firewall-modal-submit");
+    const cancel = getElement("firewall-modal-cancel");
+    const close = getElement("firewall-modal-close");
+
+    if (!dialog || !title || !copy || !form || !alert || !submit || !cancel || !close)
+        return;
+
+    const current = state.firewallDialog;
+    dialog.hidden = !current.open;
+    if (!current.open)
+        return;
+
+    const isEnable = current.mode === "enable-ufw";
+    title.textContent = isEnable
+        ? "启用 UFW"
+        : state.firewallBackend === "ufw"
+            ? "添加 UFW 规则"
+            : "插入 iptables 规则";
+    copy.hidden = !isEnable;
+    copy.textContent = isEnable
+        ? "这会立即启用 UFW 并应用当前规则。请先确认当前管理连接所需端口已经放行。"
+        : "";
+    form.hidden = isEnable;
+    alert.hidden = !current.error;
+    alert.textContent = current.error;
+    submit.textContent = isEnable
+        ? (current.busy ? "启用中..." : "启用")
+        : current.busy
+            ? (state.firewallBackend === "ufw" ? "添加中..." : "插入中...")
+            : state.firewallBackend === "ufw"
+                ? "添加"
+                : "插入";
+    submit.disabled = current.busy;
+    cancel.disabled = current.busy;
+    close.disabled = current.busy;
+    form.querySelectorAll("input, select").forEach(field => {
+        field.disabled = current.busy;
+    });
+}
+
+function openFirewallEnableDialog() {
+    updateFirewallDialog({
+        open: true,
+        mode: "enable-ufw",
+        busy: false,
+        error: "",
+    });
+}
+
+function openFirewallRuleDialog() {
+    const form = getElement("firewall-rule-form");
+    if (form)
+        form.reset();
+
+    setFirewallRuleActionOptions();
+    updateFirewallDialog({
+        open: true,
+        mode: "add-rule",
+        busy: false,
+        error: "",
+    });
+}
+
+function closeFirewallDialog() {
+    resetFirewallDialog();
+    renderFirewallDialog();
+}
+
+async function deleteFirewallRule(rule) {
+    if (!rule)
+        return;
+
+    const result = rule.kind === "ufw"
+        ? await execute("firewall", "UFW 删除规则", ["ufw", "--force", "delete", rule.value])
+        : await execute("firewall", "iptables 删除规则", ["iptables", "-D", "INPUT", rule.value]);
+
+    if (result.ok)
+        await refreshFirewallStatus();
+}
+
+async function handleFirewallDialogSubmit() {
+    if (!state.firewallDialog.open || state.firewallDialog.busy)
+        return;
+
+    if (state.firewallDialog.mode === "enable-ufw") {
+        updateFirewallDialog({ busy: true, error: "" });
+        const result = await execute("firewall", "UFW 启用", ["ufw", "--force", "enable"]);
+        if (!result.ok) {
+            updateFirewallDialog({
+                busy: false,
+                error: summarizeOutput(result.output, false),
+            });
+            return;
+        }
+
+        closeFirewallDialog();
+        await refreshFirewallStatus();
+        return;
+    }
+
+    const form = getElement("firewall-rule-form");
+    if (!form)
+        return;
+
+    const action = getFormValue(form, "action");
+    const port = getFormValue(form, "port");
+    const protocol = getFormValue(form, "protocol");
+    const source = getFormValue(form, "source");
+
+    if (!port) {
+        updateFirewallDialog({ error: "端口不能为空。" });
+        return;
+    }
+
+    const args = state.firewallBackend === "ufw"
+        ? source
+            ? ["ufw", action, "from", source, "to", "any", "port", port, "proto", protocol]
+            : ["ufw", action, `${port}/${protocol}`]
+        : (() => {
+            const command = ["iptables", "-I", "INPUT", "-p", protocol];
+            if (source)
+                command.push("-s", source);
+            command.push("--dport", port, "-j", action);
+            return command;
+        })();
+
+    const label = state.firewallBackend === "ufw" ? "UFW 添加规则" : "iptables 插入规则";
+    updateFirewallDialog({ busy: true, error: "" });
+    const result = await execute("firewall", label, args);
+    if (!result.ok) {
+        updateFirewallDialog({
+            busy: false,
+            error: summarizeOutput(result.output, false),
+        });
+        return;
+    }
+
+    closeFirewallDialog();
+    form.reset();
+    await refreshFirewallStatus();
+}
+
 async function handleQuickAction(action) {
     const actions = {
-        "ufw-enable": () => execute("firewall", "UFW 启用", ["ufw", "--force", "enable"]),
         "ufw-disable": () => execute("firewall", "UFW 禁用", ["ufw", "disable"]),
         "ufw-reload": () => execute("firewall", "UFW 重新加载", ["ufw", "reload"]),
         "fail2ban-start": () => execute("fail2ban", "启动 Fail2Ban", ["systemctl", "start", "fail2ban"]),
@@ -1309,81 +1567,6 @@ async function handleQuickAction(action) {
 
     if (action.startsWith("fail2ban"))
         await refreshFail2BanStatus();
-}
-
-async function handleUfwAdd(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const action = getFormValue(form, "action");
-    const port = getFormValue(form, "port");
-    const protocol = getFormValue(form, "protocol");
-    const source = getFormValue(form, "source");
-
-    if (!port) {
-        showCommandResult("firewall", "UFW 添加失败", "端口不能为空。", false);
-        return;
-    }
-
-    const args = source
-        ? ["ufw", action, "from", source, "to", "any", "port", port, "proto", protocol]
-        : ["ufw", action, `${port}/${protocol}`];
-
-    await execute("firewall", "UFW 添加规则", args);
-    form.reset();
-    await refreshFirewallStatus();
-}
-
-async function handleUfwDelete(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const number = getFormValue(form, "number");
-
-    if (!number) {
-        showCommandResult("firewall", "UFW 删除失败", "规则编号不能为空。", false);
-        return;
-    }
-
-    await execute("firewall", "UFW 删除规则", ["ufw", "--force", "delete", number]);
-    form.reset();
-    await refreshFirewallStatus();
-}
-
-async function handleIptablesAdd(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const action = getFormValue(form, "action");
-    const port = getFormValue(form, "port");
-    const protocol = getFormValue(form, "protocol");
-    const source = getFormValue(form, "source");
-
-    if (!port) {
-        showCommandResult("firewall", "iptables 添加失败", "端口不能为空。", false);
-        return;
-    }
-
-    const args = ["iptables", "-I", "INPUT", "-p", protocol];
-    if (source)
-        args.push("-s", source);
-    args.push("--dport", port, "-j", action);
-
-    await execute("firewall", "iptables 插入规则", args);
-    form.reset();
-    await refreshFirewallStatus();
-}
-
-async function handleIptablesDelete(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const line = getFormValue(form, "line");
-
-    if (!line) {
-        showCommandResult("firewall", "iptables 删除失败", "行号不能为空。", false);
-        return;
-    }
-
-    await execute("firewall", "iptables 删除规则", ["iptables", "-D", "INPUT", line]);
-    form.reset();
-    await refreshFirewallStatus();
 }
 
 async function handleFail2BanJail(event) {
@@ -1413,7 +1596,7 @@ async function handleFail2BanUnban(event) {
 }
 
 function bindEvents() {
-    document.querySelectorAll(".tab-button").forEach(button => {
+    document.querySelectorAll(".tab-link").forEach(button => {
         button.addEventListener("click", () => switchTab(button.dataset.tab));
     });
 
@@ -1430,14 +1613,23 @@ function bindEvents() {
     document.getElementById("security-auth-form")?.addEventListener("input", handleSuperuserDialogInput);
     document.getElementById("security-auth-form")?.addEventListener("change", handleSuperuserDialogInput);
     document.getElementById("security-auth-cancel")?.addEventListener("click", () => closeSuperuserDialog());
+    document.getElementById("firewall-enable-button")?.addEventListener("click", openFirewallEnableDialog);
+    document.getElementById("firewall-add-button")?.addEventListener("click", openFirewallRuleDialog);
+    document.getElementById("firewall-modal-submit")?.addEventListener("click", handleFirewallDialogSubmit);
+    document.getElementById("firewall-modal-cancel")?.addEventListener("click", closeFirewallDialog);
+    document.getElementById("firewall-modal-close")?.addEventListener("click", closeFirewallDialog);
+    document.getElementById("firewall-rule-form")?.addEventListener("submit", event => {
+        event.preventDefault();
+        handleFirewallDialogSubmit();
+    });
+    document.getElementById("firewall-modal")?.addEventListener("click", event => {
+        if (event.target?.id === "firewall-modal")
+            closeFirewallDialog();
+    });
     document.getElementById("security-auth-dialog")?.addEventListener("click", event => {
         if (event.target?.id === "security-auth-dialog")
             closeSuperuserDialog();
     });
-    document.getElementById("ufw-add-form")?.addEventListener("submit", handleUfwAdd);
-    document.getElementById("ufw-delete-form")?.addEventListener("submit", handleUfwDelete);
-    document.getElementById("iptables-add-form")?.addEventListener("submit", handleIptablesAdd);
-    document.getElementById("iptables-delete-form")?.addEventListener("submit", handleIptablesDelete);
     document.getElementById("firewall-rules-prev")?.addEventListener("click", () => {
         state.firewallRules.page = Math.max(1, state.firewallRules.page - 1);
         renderFirewallRulesTable();
@@ -1476,6 +1668,11 @@ function bindEvents() {
     });
 
     document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && state.firewallDialog.open) {
+            closeFirewallDialog();
+            return;
+        }
+
         if (event.key === "Escape" && state.superuserDialog.open)
             closeSuperuserDialog();
     });
@@ -1489,6 +1686,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     clearFail2BanJail("可从 jail 列表快速打开，也可以手动输入名称查看。");
     switchTab(state.activeTab);
     switchFirewallBackend(state.firewallBackend, { refresh: false });
+    renderFirewallDialog();
     renderSuperuserDialog();
     renderAccessState();
 });

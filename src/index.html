@@ -30,398 +30,355 @@
             </div>
         </section>
 
-        <main class="page-content" hidden>
-            <section>
-                <div class="pf-v6-c-card pf-m-plain security-shell">
-                    <div class="security-shell__tabs">
-                        <nav class="pf-v6-c-tabs" aria-label="安全分类">
-                            <ul class="pf-v6-c-tabs__list" role="tablist">
-                                <li class="pf-v6-c-tabs__item" role="presentation">
-                                    <button class="pf-v6-c-tabs__link tab-button active" id="tab-firewall" data-tab="firewall" type="button" role="tab" aria-selected="true" aria-controls="panel-firewall">
-                                        <span class="pf-v6-c-tabs__item-text">防火墙</span>
+        <div class="page-content pf-v6-c-page__main-container" hidden>
+            <main class="pf-v6-c-page__main" tabindex="-1">
+                <section class="pf-v6-c-page__main-section security-header">
+                    <div class="pf-v6-l-flex security-header__layout">
+                        <nav class="pf-v6-c-nav pf-m-horizontal pf-m-subnav security-subnav" aria-label="安全分类">
+                            <ul class="pf-v6-c-nav__list" role="list">
+                                <li class="pf-v6-c-nav__item">
+                                    <button class="pf-v6-c-button pf-m-link pf-v6-c-nav__link tab-link pf-m-current" id="tab-firewall" data-tab="firewall" type="button" aria-current="page" aria-controls="panel-firewall">
+                                        <span class="pf-v6-c-button__text">防火墙</span>
                                     </button>
                                 </li>
-                                <li class="pf-v6-c-tabs__item" role="presentation">
-                                    <button class="pf-v6-c-tabs__link tab-button" id="tab-fail2ban" data-tab="fail2ban" type="button" role="tab" aria-selected="false" aria-controls="panel-fail2ban">
-                                        <span class="pf-v6-c-tabs__item-text">Fail2Ban</span>
+                                <li class="pf-v6-c-nav__item">
+                                    <button class="pf-v6-c-button pf-m-link pf-v6-c-nav__link tab-link" id="tab-fail2ban" data-tab="fail2ban" type="button" aria-current="false" aria-controls="panel-fail2ban">
+                                        <span class="pf-v6-c-button__text">Fail2Ban</span>
                                     </button>
                                 </li>
                             </ul>
                         </nav>
+
+                        <div class="firewall-backend-toggle" id="firewall-backend-toggle">
+                            <div class="pf-v6-c-toggle-group" role="group" aria-label="防火墙后端">
+                                <div class="pf-v6-c-toggle-group__item">
+                                    <button type="button" class="pf-v6-c-toggle-group__button backend-button pf-m-selected" data-backend="ufw" aria-pressed="true">
+                                        <span class="pf-v6-c-toggle-group__text">UFW</span>
+                                    </button>
+                                </div>
+                                <div class="pf-v6-c-toggle-group__item">
+                                    <button type="button" class="pf-v6-c-toggle-group__button backend-button" data-backend="iptables" aria-pressed="false">
+                                        <span class="pf-v6-c-toggle-group__text">iptables</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="pf-v6-c-page__main-section tab-panel active" id="panel-firewall" data-panel="firewall" role="tabpanel" aria-labelledby="tab-firewall">
+                    <div class="panel-intro panel-intro--service">
+                        <div>
+                            <h1 class="pf-v6-c-title pf-m-3xl">防火墙</h1>
+                            <p class="panel-intro__copy">在 UFW 和 iptables 之间切换，查看状态、维护规则，并处理运行时的系统服务。</p>
+                        </div>
+                        <span class="pf-v6-c-label status-pill" id="firewall-status-pill">加载中</span>
                     </div>
 
-                    <section class="tab-panel active" id="panel-firewall" data-panel="firewall" role="tabpanel" aria-labelledby="tab-firewall">
-                        <div class="panel-intro">
-                            <div>
-                                <h2 class="pf-v6-c-title pf-m-2xl">防火墙</h2>
-                                <p class="panel-intro__copy">在 UFW 和 iptables 之间切换，查看状态、维护规则，并处理运行时的系统服务。</p>
+                    <div class="summary-grid summary-grid--overview">
+                        <div class="summary-item">
+                            <span class="summary-label">当前后端</span>
+                            <strong class="summary-value" id="firewall-backend-label">UFW</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">规则数量</span>
+                            <strong class="summary-value" id="firewall-rule-count">--</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">默认策略</span>
+                            <span class="summary-text" id="firewall-policy-summary">等待状态数据...</span>
+                        </div>
+                    </div>
+
+                    <dl class="detail-list" id="firewall-details"></dl>
+
+                    <div class="token-group service-row">
+                        <span class="inline-label">相关服务</span>
+                        <div class="service-links" id="firewall-service-links"></div>
+                    </div>
+
+                    <section class="pf-v6-c-card pf-m-compact pf-m-plain security-list-card">
+                        <div class="pf-v6-c-card__header" id="firewall-card-header">
+                            <div class="pf-v6-c-card__header-main">
+                                <div class="card-heading">
+                                    <h2 class="pf-v6-c-title pf-m-xl">规则表</h2>
+                                    <p class="card-copy">当前后端的活动规则与分页视图。</p>
+                                </div>
+
+                                <div class="pf-v6-c-toolbar security-toolbar" id="firewall-toolbar">
+                                    <div class="pf-v6-c-toolbar__content">
+                                        <div class="pf-v6-c-toolbar__content-section">
+                                            <div class="pf-v6-c-toolbar__group pf-m-filter-group">
+                                                <div class="pf-v6-c-toolbar__item">
+                                                    <span class="security-toolbar__summary" id="firewall-summary-copy">正在加载防火墙状态...</span>
+                                                </div>
+                                                <div class="pf-v6-c-toolbar__item">
+                                                    <span class="pf-v6-c-label status-pill" id="firewall-command-label">等待操作</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="pf-v6-c-toolbar__group security-toolbar__actions">
+                                                <div class="pf-v6-c-toolbar__item">
+                                                    <button class="pf-v6-c-button pf-m-tertiary" id="firewall-enable-button" type="button">启用</button>
+                                                </div>
+                                                <div class="pf-v6-c-toolbar__item">
+                                                    <button class="pf-v6-c-button pf-m-tertiary" id="firewall-disable-button" type="button" data-action="ufw-disable">禁用</button>
+                                                </div>
+                                                <div class="pf-v6-c-toolbar__item">
+                                                    <button class="pf-v6-c-button pf-m-tertiary" id="firewall-reload-button" type="button" data-action="ufw-reload">重新加载</button>
+                                                </div>
+                                                <div class="pf-v6-c-toolbar__item">
+                                                    <button class="pf-v6-c-button pf-m-primary" id="firewall-add-button" type="button">添加规则</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="pf-v6-l-grid pf-m-gutter security-grid">
-                            <section class="pf-v6-c-card security-card security-card--compact">
-                                <div class="pf-v6-c-card__header">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">后端</h3>
-                                        <p class="card-copy">选择当前要配置的防火墙后端。</p>
-                                    </div>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="pf-v6-c-segmented-control backend-switch" aria-label="防火墙后端">
-                                        <button class="pf-v6-c-button pf-m-control backend-button active" data-backend="ufw" type="button" aria-pressed="true">UFW</button>
-                                        <button class="pf-v6-c-button pf-m-control backend-button" data-backend="iptables" type="button" aria-pressed="false">iptables</button>
-                                    </div>
-                                </div>
-                            </section>
+                        <div class="pf-v6-c-card__body">
+                            <div class="result-callout" id="firewall-result-summary">最近一次操作结果会显示在这里。</div>
 
-                            <section class="pf-v6-c-card security-card security-card--span-2">
-                                <div class="pf-v6-c-card__header security-card__header--split">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">状态概览</h3>
-                                        <p class="card-copy" id="firewall-summary-copy">正在加载防火墙状态...</p>
-                                    </div>
-                                    <span class="pf-v6-c-label status-pill" id="firewall-status-pill">加载中</span>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="summary-grid">
-                                        <div class="summary-item">
-                                            <span class="summary-label">当前后端</span>
-                                            <strong class="summary-value" id="firewall-backend-label">UFW</strong>
-                                        </div>
-                                        <div class="summary-item">
-                                            <span class="summary-label">规则数量</span>
-                                            <strong class="summary-value" id="firewall-rule-count">--</strong>
-                                        </div>
-                                        <div class="summary-item">
-                                            <span class="summary-label">默认策略</span>
-                                            <span class="summary-text" id="firewall-policy-summary">等待状态数据...</span>
-                                        </div>
-                                    </div>
+                            <div class="table-wrap">
+                                <table class="pf-v6-c-table data-table">
+                                    <thead id="firewall-rules-head"></thead>
+                                    <tbody id="firewall-rules-body"></tbody>
+                                </table>
+                                <div class="empty-state" id="firewall-rules-empty" hidden>暂无规则数据。</div>
+                            </div>
 
-                                    <dl class="detail-list" id="firewall-details"></dl>
-
-                                    <div class="token-group service-row">
-                                        <span class="inline-label">相关服务</span>
-                                        <div class="service-links" id="firewall-service-links"></div>
-                                    </div>
+                            <div class="table-pagination" id="firewall-rules-pagination" hidden>
+                                <span class="table-pagination__meta" id="firewall-rules-page-meta">第 1 / 1 页</span>
+                                <div class="table-pagination__jump">
+                                    <label for="firewall-rules-page-jump">跳至</label>
+                                    <input id="firewall-rules-page-jump" class="table-pagination__page-input" list="firewall-rules-page-options" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="1">
+                                    <datalist id="firewall-rules-page-options"></datalist>
+                                    <span>页</span>
+                                    <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-page-go" type="button">跳转</button>
                                 </div>
-                            </section>
-
-                            <section class="pf-v6-c-card security-card security-card--span-3">
-                                <div class="pf-v6-c-card__header">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">规则表</h3>
-                                        <p class="card-copy">当前后端的活动规则与分页视图。</p>
-                                    </div>
+                                <div class="table-pagination__actions">
+                                    <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-prev" type="button">上一页</button>
+                                    <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-next" type="button">下一页</button>
                                 </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="table-wrap">
-                                        <table class="pf-v6-c-table data-table">
-                                            <thead id="firewall-rules-head"></thead>
-                                            <tbody id="firewall-rules-body"></tbody>
-                                        </table>
-                                        <div class="empty-state" id="firewall-rules-empty" hidden>暂无规则数据。</div>
-                                    </div>
-                                    <div class="table-pagination" id="firewall-rules-pagination" hidden>
-                                        <span class="table-pagination__meta" id="firewall-rules-page-meta">第 1 / 1 页</span>
-                                        <div class="table-pagination__jump">
-                                            <label for="firewall-rules-page-jump">跳至</label>
-                                            <input id="firewall-rules-page-jump" class="table-pagination__page-input" list="firewall-rules-page-options" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="1">
-                                            <datalist id="firewall-rules-page-options"></datalist>
-                                            <span>页</span>
-                                            <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-page-go" type="button">跳转</button>
-                                        </div>
-                                        <div class="table-pagination__actions">
-                                            <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-prev" type="button">上一页</button>
-                                            <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-next" type="button">下一页</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section class="pf-v6-c-card security-card security-card--span-3 backend-panel active" data-backend-panel="ufw">
-                                <div class="pf-v6-c-card__header security-card__header--split">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">UFW 配置</h3>
-                                        <p class="card-copy">适合 Debian / Ubuntu 一类主机的快速规则维护。</p>
-                                    </div>
-                                    <div class="toolbar compact-toolbar">
-                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="ufw-enable" type="button">启用</button>
-                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="ufw-disable" type="button">禁用</button>
-                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="ufw-reload" type="button">重新加载</button>
-                                    </div>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="operation-grid">
-                                        <form class="form-card" id="ufw-add-form">
-                                            <div class="form-card__header">
-                                                <h4 class="pf-v6-c-title pf-m-lg">添加规则</h4>
-                                                <p>通过端口、协议和来源快速生成一条 UFW 规则。</p>
-                                            </div>
-                                            <div class="form-grid">
-                                                <label>
-                                                    动作
-                                                    <select name="action">
-                                                        <option value="allow">allow</option>
-                                                        <option value="deny">deny</option>
-                                                        <option value="reject">reject</option>
-                                                    </select>
-                                                </label>
-                                                <label>
-                                                    端口
-                                                    <input name="port" placeholder="22" required>
-                                                </label>
-                                                <label>
-                                                    协议
-                                                    <select name="protocol">
-                                                        <option value="tcp">tcp</option>
-                                                        <option value="udp">udp</option>
-                                                    </select>
-                                                </label>
-                                                <label>
-                                                    来源 IP/CIDR
-                                                    <input name="source" placeholder="留空表示任意来源">
-                                                </label>
-                                            </div>
-                                            <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-primary" type="submit">添加规则</button>
-                                            </div>
-                                        </form>
-
-                                        <form class="form-card" id="ufw-delete-form">
-                                            <div class="form-card__header">
-                                                <h4 class="pf-v6-c-title pf-m-lg">删除规则</h4>
-                                                <p>按 `ufw status numbered` 中的规则编号删除。</p>
-                                            </div>
-                                            <div class="form-grid compact-grid">
-                                                <label>
-                                                    规则编号
-                                                    <input name="number" placeholder="1" required>
-                                                </label>
-                                            </div>
-                                            <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-secondary pf-m-danger" type="submit">删除规则</button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section class="pf-v6-c-card security-card security-card--span-3 backend-panel" data-backend-panel="iptables">
-                                <div class="pf-v6-c-card__header">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">iptables 配置</h3>
-                                        <p class="card-copy">聚焦 `INPUT` 链的常见插入和删除操作。</p>
-                                    </div>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="operation-grid">
-                                        <form class="form-card" id="iptables-add-form">
-                                            <div class="form-card__header">
-                                                <h4 class="pf-v6-c-title pf-m-lg">插入规则</h4>
-                                                <p>将常用规则插入到 `INPUT` 链顶部。</p>
-                                            </div>
-                                            <div class="form-grid">
-                                                <label>
-                                                    动作
-                                                    <select name="action">
-                                                        <option value="ACCEPT">ACCEPT</option>
-                                                        <option value="DROP">DROP</option>
-                                                        <option value="REJECT">REJECT</option>
-                                                    </select>
-                                                </label>
-                                                <label>
-                                                    端口
-                                                    <input name="port" placeholder="22" required>
-                                                </label>
-                                                <label>
-                                                    协议
-                                                    <select name="protocol">
-                                                        <option value="tcp">tcp</option>
-                                                        <option value="udp">udp</option>
-                                                    </select>
-                                                </label>
-                                                <label>
-                                                    来源 IP/CIDR
-                                                    <input name="source" placeholder="留空表示任意来源">
-                                                </label>
-                                            </div>
-                                            <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-primary" type="submit">插入规则</button>
-                                            </div>
-                                        </form>
-
-                                        <form class="form-card" id="iptables-delete-form">
-                                            <div class="form-card__header">
-                                                <h4 class="pf-v6-c-title pf-m-lg">按行号删除</h4>
-                                                <p>删除 `INPUT` 链中指定行号的规则。</p>
-                                            </div>
-                                            <div class="form-grid compact-grid">
-                                                <label>
-                                                    INPUT 链行号
-                                                    <input name="line" placeholder="1" required>
-                                                </label>
-                                            </div>
-                                            <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-secondary pf-m-danger" type="submit">删除规则</button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section class="pf-v6-c-card security-card security-card--span-3">
-                                <div class="pf-v6-c-card__header security-card__header--split">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">操作结果</h3>
-                                        <p class="card-copy">显示最近一次防火墙命令的执行摘要。</p>
-                                    </div>
-                                    <span class="pf-v6-c-label status-pill" id="firewall-command-label">等待操作</span>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="result-callout" id="firewall-result-summary">最近一次操作结果会显示在这里。</div>
-                                </div>
-                            </section>
-                        </div>
-                    </section>
-
-                    <section class="tab-panel" id="panel-fail2ban" data-panel="fail2ban" role="tabpanel" aria-labelledby="tab-fail2ban">
-                        <div class="panel-intro">
-                            <div>
-                                <h2 class="pf-v6-c-title pf-m-2xl">Fail2Ban</h2>
-                                <p class="panel-intro__copy">查看服务与 jail 状态，快速定位封禁信息，并完成服务控制或手动解封。</p>
                             </div>
                         </div>
-
-                        <div class="pf-v6-l-grid pf-m-gutter security-grid">
-                            <section class="pf-v6-c-card security-card security-card--span-2">
-                                <div class="pf-v6-c-card__header security-card__header--split">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">服务状态</h3>
-                                        <p class="card-copy" id="fail2ban-service-copy">正在加载 Fail2Ban 服务状态...</p>
-                                    </div>
-                                    <span class="pf-v6-c-label status-pill" id="fail2ban-service-pill">加载中</span>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="summary-grid">
-                                        <div class="summary-item">
-                                            <span class="summary-label">服务状态</span>
-                                            <strong class="summary-value" id="fail2ban-service-state">--</strong>
-                                        </div>
-                                        <div class="summary-item">
-                                            <span class="summary-label">Jail 数量</span>
-                                            <strong class="summary-value" id="fail2ban-jail-count">--</strong>
-                                        </div>
-                                        <div class="summary-item">
-                                            <span class="summary-label">当前查看</span>
-                                            <strong class="summary-value" id="fail2ban-current-jail">未选择</strong>
-                                        </div>
-                                    </div>
-
-                                    <dl class="detail-list" id="fail2ban-details"></dl>
-
-                                    <div class="token-group service-row">
-                                        <span class="inline-label">相关服务</span>
-                                        <div class="service-links" id="fail2ban-service-links"></div>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section class="pf-v6-c-card security-card">
-                                <div class="pf-v6-c-card__header security-card__header--split">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">Jail 详情</h3>
-                                        <p class="card-copy" id="fail2ban-current-jail-copy">可从 jail 列表快速打开，也可以手动输入名称查看。</p>
-                                    </div>
-                                    <span class="pf-v6-c-label status-pill" id="fail2ban-jail-pill">未选择</span>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="token-group">
-                                        <span class="inline-label">Jail 列表</span>
-                                        <div class="token-row" id="fail2ban-jail-list"></div>
-                                    </div>
-
-                                    <div class="metric-grid" id="fail2ban-jail-metrics"></div>
-                                    <dl class="detail-list" id="fail2ban-jail-details"></dl>
-
-                                    <div class="token-group">
-                                        <span class="inline-label">封禁 IP</span>
-                                        <div class="token-row" id="fail2ban-banned-ips"></div>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section class="pf-v6-c-card security-card security-card--span-3">
-                                <div class="pf-v6-c-card__header security-card__header--split">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">服务与操作</h3>
-                                        <p class="card-copy">控制 `fail2ban.service`，并支持查看 jail 或解封指定 IP。</p>
-                                    </div>
-                                    <div class="toolbar compact-toolbar">
-                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-start" type="button">启动服务</button>
-                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-stop" type="button">停止服务</button>
-                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-restart" type="button">重启服务</button>
-                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-reload" type="button">重新加载配置</button>
-                                    </div>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="operation-grid">
-                                        <form class="form-card" id="fail2ban-jail-form">
-                                            <div class="form-card__header">
-                                                <h4 class="pf-v6-c-title pf-m-lg">查看单个 jail</h4>
-                                                <p>输入 jail 名称，查看失败与封禁统计。</p>
-                                            </div>
-                                            <div class="form-grid compact-grid">
-                                                <label>
-                                                    jail 名称
-                                                    <input id="fail2ban-jail-input" name="jail" placeholder="sshd" required>
-                                                </label>
-                                            </div>
-                                            <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-primary" type="submit">查看 jail 状态</button>
-                                            </div>
-                                        </form>
-
-                                        <form class="form-card" id="fail2ban-unban-form">
-                                            <div class="form-card__header">
-                                                <h4 class="pf-v6-c-title pf-m-lg">解封 IP</h4>
-                                                <p>对指定 jail 执行手动解封操作。</p>
-                                            </div>
-                                            <div class="form-grid compact-grid">
-                                                <label>
-                                                    jail 名称
-                                                    <input id="fail2ban-unban-jail-input" name="jail" placeholder="sshd" required>
-                                                </label>
-                                                <label>
-                                                    IP 地址
-                                                    <input name="ip" placeholder="203.0.113.5" required>
-                                                </label>
-                                            </div>
-                                            <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-secondary pf-m-danger" type="submit">执行解封</button>
-                                            </div>
-                                        </form>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section class="pf-v6-c-card security-card security-card--span-3">
-                                <div class="pf-v6-c-card__header security-card__header--split">
-                                    <div>
-                                        <h3 class="pf-v6-c-title pf-m-xl">操作结果</h3>
-                                        <p class="card-copy">显示最近一次 Fail2Ban 相关命令的执行摘要。</p>
-                                    </div>
-                                    <span class="pf-v6-c-label status-pill" id="fail2ban-command-label">等待操作</span>
-                                </div>
-                                <div class="pf-v6-c-card__body">
-                                    <div class="result-callout" id="fail2ban-result-summary">最近一次操作结果会显示在这里。</div>
-                                </div>
-                            </section>
-                        </div>
                     </section>
+                </section>
+
+                <section class="pf-v6-c-page__main-section tab-panel" id="panel-fail2ban" data-panel="fail2ban" role="tabpanel" aria-labelledby="tab-fail2ban" hidden>
+                    <div class="panel-intro panel-intro--service">
+                        <div>
+                            <h1 class="pf-v6-c-title pf-m-3xl">Fail2Ban</h1>
+                            <p class="panel-intro__copy">查看服务与 jail 状态，快速定位封禁信息，并完成服务控制或手动解封。</p>
+                        </div>
+                        <span class="pf-v6-c-label status-pill" id="fail2ban-service-pill">加载中</span>
+                    </div>
+
+                    <div class="pf-v6-l-grid pf-m-gutter security-grid">
+                        <section class="pf-v6-c-card security-card security-card--span-2">
+                            <div class="pf-v6-c-card__header">
+                                <div>
+                                    <h3 class="pf-v6-c-title pf-m-xl">服务状态</h3>
+                                    <p class="card-copy" id="fail2ban-service-copy">正在加载 Fail2Ban 服务状态...</p>
+                                </div>
+                            </div>
+                            <div class="pf-v6-c-card__body">
+                                <div class="summary-grid">
+                                    <div class="summary-item">
+                                        <span class="summary-label">服务状态</span>
+                                        <strong class="summary-value" id="fail2ban-service-state">--</strong>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">Jail 数量</span>
+                                        <strong class="summary-value" id="fail2ban-jail-count">--</strong>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">当前查看</span>
+                                        <strong class="summary-value" id="fail2ban-current-jail">未选择</strong>
+                                    </div>
+                                </div>
+
+                                <dl class="detail-list" id="fail2ban-details"></dl>
+
+                                <div class="token-group service-row">
+                                    <span class="inline-label">相关服务</span>
+                                    <div class="service-links" id="fail2ban-service-links"></div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="pf-v6-c-card security-card">
+                            <div class="pf-v6-c-card__header security-card__header--split">
+                                <div>
+                                    <h3 class="pf-v6-c-title pf-m-xl">Jail 详情</h3>
+                                    <p class="card-copy" id="fail2ban-current-jail-copy">可从 jail 列表快速打开，也可以手动输入名称查看。</p>
+                                </div>
+                                <span class="pf-v6-c-label status-pill" id="fail2ban-jail-pill">未选择</span>
+                            </div>
+                            <div class="pf-v6-c-card__body">
+                                <div class="token-group">
+                                    <span class="inline-label">Jail 列表</span>
+                                    <div class="token-row" id="fail2ban-jail-list"></div>
+                                </div>
+
+                                <div class="metric-grid" id="fail2ban-jail-metrics"></div>
+                                <dl class="detail-list" id="fail2ban-jail-details"></dl>
+
+                                <div class="token-group">
+                                    <span class="inline-label">封禁 IP</span>
+                                    <div class="token-row" id="fail2ban-banned-ips"></div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="pf-v6-c-card security-card security-card--span-3">
+                            <div class="pf-v6-c-card__header security-card__header--split">
+                                <div>
+                                    <h3 class="pf-v6-c-title pf-m-xl">服务与操作</h3>
+                                    <p class="card-copy">控制 `fail2ban.service`，并支持查看 jail 或解封指定 IP。</p>
+                                </div>
+                                <div class="toolbar compact-toolbar">
+                                    <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-start" type="button">启动服务</button>
+                                    <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-stop" type="button">停止服务</button>
+                                    <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-restart" type="button">重启服务</button>
+                                    <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-reload" type="button">重新加载配置</button>
+                                </div>
+                            </div>
+                            <div class="pf-v6-c-card__body">
+                                <div class="operation-grid">
+                                    <form class="form-card" id="fail2ban-jail-form">
+                                        <div class="form-card__header">
+                                            <h4 class="pf-v6-c-title pf-m-lg">查看单个 jail</h4>
+                                            <p>输入 jail 名称，查看失败与封禁统计。</p>
+                                        </div>
+                                        <div class="form-grid compact-grid">
+                                            <label>
+                                                jail 名称
+                                                <input id="fail2ban-jail-input" name="jail" placeholder="sshd" required>
+                                            </label>
+                                        </div>
+                                        <div class="toolbar">
+                                            <button class="pf-v6-c-button pf-m-primary" type="submit">查看 jail 状态</button>
+                                        </div>
+                                    </form>
+
+                                    <form class="form-card" id="fail2ban-unban-form">
+                                        <div class="form-card__header">
+                                            <h4 class="pf-v6-c-title pf-m-lg">解封 IP</h4>
+                                            <p>对指定 jail 执行手动解封操作。</p>
+                                        </div>
+                                        <div class="form-grid compact-grid">
+                                            <label>
+                                                jail 名称
+                                                <input id="fail2ban-unban-jail-input" name="jail" placeholder="sshd" required>
+                                            </label>
+                                            <label>
+                                                IP 地址
+                                                <input name="ip" placeholder="203.0.113.5" required>
+                                            </label>
+                                        </div>
+                                        <div class="toolbar">
+                                            <button class="pf-v6-c-button pf-m-secondary pf-m-danger" type="submit">执行解封</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="pf-v6-c-card security-card security-card--span-3">
+                            <div class="pf-v6-c-card__header security-card__header--split">
+                                <div>
+                                    <h3 class="pf-v6-c-title pf-m-xl">操作结果</h3>
+                                    <p class="card-copy">显示最近一次 Fail2Ban 相关命令的执行摘要。</p>
+                                </div>
+                                <span class="pf-v6-c-label status-pill" id="fail2ban-command-label">等待操作</span>
+                            </div>
+                            <div class="pf-v6-c-card__body">
+                                <div class="result-callout" id="fail2ban-result-summary">最近一次操作结果会显示在这里。</div>
+                            </div>
+                        </section>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <div class="auth-dialog-backdrop" id="firewall-modal" hidden>
+            <div class="pf-v6-c-modal-box pf-m-align-top pf-m-md security-action-modal" role="dialog" aria-modal="true" aria-labelledby="firewall-modal-title">
+                <div class="pf-v6-c-modal-box__close">
+                    <button aria-label="关闭" class="pf-v6-c-button pf-m-plain" id="firewall-modal-close" type="button">
+                        <span class="pf-v6-c-button__icon" aria-hidden="true">&times;</span>
+                    </button>
                 </div>
-            </section>
-        </main>
+
+                <header class="pf-v6-c-modal-box__header">
+                    <div class="pf-v6-c-modal-box__header-main">
+                        <h1 id="firewall-modal-title" class="pf-v6-c-modal-box__title">
+                            <span class="pf-v6-c-modal-box__title-text">添加规则</span>
+                        </h1>
+                    </div>
+                </header>
+
+                <div class="pf-v6-c-modal-box__body">
+                    <div class="inline-alert" id="firewall-modal-alert" hidden></div>
+                    <p class="firewall-modal__lead" id="firewall-modal-copy" hidden></p>
+
+                    <form novalidate id="firewall-rule-form" class="pf-v6-c-form pf-m-horizontal" hidden>
+                        <div class="pf-v6-c-form__group">
+                            <div class="pf-v6-c-form__group-label">
+                                <label class="pf-v6-c-form__label" for="firewall-rule-action">
+                                    <span class="pf-v6-c-form__label-text">动作</span>
+                                </label>
+                            </div>
+                            <div class="pf-v6-c-form__group-control">
+                                <select id="firewall-rule-action" name="action"></select>
+                            </div>
+                        </div>
+
+                        <div class="pf-v6-c-form__group">
+                            <div class="pf-v6-c-form__group-label">
+                                <label class="pf-v6-c-form__label" for="firewall-rule-port">
+                                    <span class="pf-v6-c-form__label-text">端口</span>
+                                </label>
+                            </div>
+                            <div class="pf-v6-c-form__group-control">
+                                <input id="firewall-rule-port" name="port" placeholder="22" required>
+                            </div>
+                        </div>
+
+                        <div class="pf-v6-c-form__group">
+                            <div class="pf-v6-c-form__group-label">
+                                <label class="pf-v6-c-form__label" for="firewall-rule-protocol">
+                                    <span class="pf-v6-c-form__label-text">协议</span>
+                                </label>
+                            </div>
+                            <div class="pf-v6-c-form__group-control">
+                                <select id="firewall-rule-protocol" name="protocol">
+                                    <option value="tcp">tcp</option>
+                                    <option value="udp">udp</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="pf-v6-c-form__group">
+                            <div class="pf-v6-c-form__group-label">
+                                <label class="pf-v6-c-form__label" for="firewall-rule-source">
+                                    <span class="pf-v6-c-form__label-text">来源 IP/CIDR</span>
+                                </label>
+                            </div>
+                            <div class="pf-v6-c-form__group-control">
+                                <input id="firewall-rule-source" name="source" placeholder="留空表示任意来源">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <footer class="pf-v6-c-modal-box__footer">
+                    <button class="pf-v6-c-button pf-m-primary" id="firewall-modal-submit" type="button">添加</button>
+                    <button class="pf-v6-c-button pf-m-link" id="firewall-modal-cancel" type="button">取消</button>
+                </footer>
+            </div>
+        </div>
 
         <div class="auth-dialog-backdrop" id="security-auth-dialog" hidden>
             <div class="pf-v6-c-modal-box auth-dialog" role="dialog" aria-modal="true" aria-labelledby="security-auth-title">
