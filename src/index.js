@@ -167,7 +167,7 @@ function renderSuperuserDialog() {
     if (!current.open)
         return;
 
-    title.textContent = "Switch to administrative access";
+    title.textContent = "切换到管理员访问";
 
     alert.hidden = !current.error;
     alert.textContent = current.error;
@@ -188,7 +188,7 @@ function renderSuperuserDialog() {
     message.textContent = current.message;
 
     promptField.hidden = !current.prompt;
-    promptLabel.textContent = current.prompt || "Password";
+    promptLabel.textContent = current.prompt || "密码";
     promptInput.type = current.echo ? "text" : "password";
     promptInput.value = current.value;
     promptInput.disabled = current.inProgress;
@@ -197,9 +197,9 @@ function renderSuperuserDialog() {
     cancel.disabled = current.inProgress;
 
     if (current.prompt)
-        submit.textContent = current.inProgress ? "Authenticating..." : "Authenticate";
+        submit.textContent = current.inProgress ? "验证中..." : "验证";
     else
-        submit.textContent = current.inProgress ? "Authenticating..." : "Authenticate";
+        submit.textContent = current.inProgress ? "验证中..." : "验证";
 
     window.setTimeout(() => {
         if (!state.superuserDialog.open)
@@ -254,8 +254,8 @@ async function startSuperuserAuthentication(method) {
 
     const promptListener = (_event, message, prompt, value, _unused, echo, hintError) => {
         updateSuperuserDialog({
-            message: normalizePromptText(message, "Please authenticate to gain administrative access"),
-            prompt: normalizePromptText(prompt, "Password"),
+            message: normalizePromptText(message, "请验证以获取管理员权限"),
+            prompt: normalizePromptText(prompt, "密码"),
             value: String(unwrapVariant(value) || ""),
             echo: Boolean(unwrapVariant(echo)),
             inProgress: false,
@@ -267,7 +267,7 @@ async function startSuperuserAuthentication(method) {
 
     updateSuperuserDialog({
         open: true,
-        message: "Please authenticate to gain administrative access",
+        message: "请验证以获取管理员权限",
         prompt: "",
         value: "",
         echo: false,
@@ -292,7 +292,7 @@ async function startSuperuserAuthentication(method) {
                 inProgress: false,
                 prompt: "",
                 message: "",
-                error: normalizePromptText(message, "Problem becoming administrator"),
+                error: normalizePromptText(message, "切换为管理员访问时出现问题"),
                 errorTone: "danger",
             });
         } else {
@@ -360,7 +360,7 @@ async function requestSuperuserAccess() {
         open: true,
         methods,
         selectedMethod: getPreferredSuperuserMethod(methods),
-        message: methods.length > 1 ? "" : "Please authenticate to gain administrative access",
+        message: methods.length > 1 ? "" : "请验证以获取管理员权限",
         prompt: "",
         value: "",
         echo: false,
@@ -426,7 +426,7 @@ function renderAccessState() {
         : "配置防火墙与其他安全选项需要管理员权限。";
     action.hidden = false;
     action.disabled = false;
-    action.textContent = "Turn on administrative access";
+    action.textContent = "启用管理员访问";
 }
 
 function handleSuperuserStateChange(nextAllowed) {
@@ -563,14 +563,14 @@ function setBadge(id, text, tone = "neutral") {
         return;
 
     element.textContent = text;
-    element.classList.remove("tone-success", "tone-warning", "tone-danger", "tone-loading");
+    element.classList.remove("tone-success", "tone-warning", "tone-danger", "tone-loading", "pf-m-green", "pf-m-orange", "pf-m-red");
     if (tone === "success")
-        element.classList.add("tone-success");
+        element.classList.add("pf-m-green");
     else if (tone === "warning")
-        element.classList.add("tone-warning");
+        element.classList.add("pf-m-orange");
     else if (tone === "danger")
-        element.classList.add("tone-danger");
-    else if (tone === "loading")
+        element.classList.add("pf-m-red");
+    if (tone === "loading")
         element.classList.add("tone-loading");
 }
 
@@ -621,7 +621,7 @@ function renderServiceLinks(containerId, services) {
     services.forEach(service => {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "service-link";
+        button.className = "pf-v6-c-button pf-m-tertiary service-link";
         button.textContent = service.label;
         button.addEventListener("click", () => {
             cockpit.jump(`/system/services#/?name=${encodeURIComponent(service.unit)}`);
@@ -799,7 +799,7 @@ function renderTokenRow(id, items, options = {}) {
 
     if (!items.length && options.emptyText) {
         const token = document.createElement("span");
-        token.className = "token";
+        token.className = "pf-v6-c-label pf-m-outline token";
         token.textContent = options.emptyText;
         container.append(token);
         return;
@@ -809,7 +809,7 @@ function renderTokenRow(id, items, options = {}) {
         if (options.clickable) {
             const button = document.createElement("button");
             button.type = "button";
-            button.className = "token-button";
+            button.className = "pf-v6-c-button pf-m-tertiary token-button";
             button.textContent = item;
             button.addEventListener("click", () => options.onClick(item));
             container.append(button);
@@ -817,7 +817,7 @@ function renderTokenRow(id, items, options = {}) {
         }
 
         const token = document.createElement("span");
-        token.className = "token";
+        token.className = "pf-v6-c-label pf-m-outline token";
         token.textContent = item;
         container.append(token);
     });

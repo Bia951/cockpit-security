@@ -24,7 +24,7 @@
                     </div>
                     <div class="pf-v6-c-empty-state__body" id="security-access-copy">正在检查当前会话的管理员权限。</div>
                     <div class="pf-v6-c-empty-state__footer">
-                        <button class="pf-v6-c-button pf-m-primary" id="security-access-action" type="button" hidden>Turn on administrative access</button>
+                        <button class="pf-v6-c-button pf-m-primary" id="security-access-action" type="button" hidden>启用管理员访问</button>
                     </div>
                 </div>
             </div>
@@ -129,11 +129,11 @@
                                             <input id="firewall-rules-page-jump" class="table-pagination__page-input" list="firewall-rules-page-options" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="1">
                                             <datalist id="firewall-rules-page-options"></datalist>
                                             <span>页</span>
-                                            <button class="pf-v6-c-button pf-m-secondary" id="firewall-rules-page-go" type="button">跳转</button>
+                                            <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-page-go" type="button">跳转</button>
                                         </div>
                                         <div class="table-pagination__actions">
-                                            <button class="pf-v6-c-button pf-m-secondary" id="firewall-rules-prev" type="button">上一页</button>
-                                            <button class="pf-v6-c-button pf-m-secondary" id="firewall-rules-next" type="button">下一页</button>
+                                            <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-prev" type="button">上一页</button>
+                                            <button class="pf-v6-c-button pf-m-tertiary" id="firewall-rules-next" type="button">下一页</button>
                                         </div>
                                     </div>
                                 </div>
@@ -146,9 +146,9 @@
                                         <p class="card-copy">适合 Debian / Ubuntu 一类主机的快速规则维护。</p>
                                     </div>
                                     <div class="toolbar compact-toolbar">
-                                        <button class="pf-v6-c-button pf-m-secondary" data-action="ufw-enable" type="button">启用</button>
-                                        <button class="pf-v6-c-button pf-m-secondary" data-action="ufw-disable" type="button">禁用</button>
-                                        <button class="pf-v6-c-button pf-m-secondary" data-action="ufw-reload" type="button">重新加载</button>
+                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="ufw-enable" type="button">启用</button>
+                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="ufw-disable" type="button">禁用</button>
+                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="ufw-reload" type="button">重新加载</button>
                                     </div>
                                 </div>
                                 <div class="pf-v6-c-card__body">
@@ -200,7 +200,7 @@
                                                 </label>
                                             </div>
                                             <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-danger" type="submit">删除规则</button>
+                                                <button class="pf-v6-c-button pf-m-secondary pf-m-danger" type="submit">删除规则</button>
                                             </div>
                                         </form>
                                     </div>
@@ -263,7 +263,7 @@
                                                 </label>
                                             </div>
                                             <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-danger" type="submit">删除规则</button>
+                                                <button class="pf-v6-c-button pf-m-secondary pf-m-danger" type="submit">删除规则</button>
                                             </div>
                                         </form>
                                     </div>
@@ -358,10 +358,10 @@
                                         <p class="card-copy">控制 `fail2ban.service`，并支持查看 jail 或解封指定 IP。</p>
                                     </div>
                                     <div class="toolbar compact-toolbar">
-                                        <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-start" type="button">启动服务</button>
-                                        <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-stop" type="button">停止服务</button>
-                                        <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-restart" type="button">重启服务</button>
-                                        <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-reload" type="button">重新加载配置</button>
+                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-start" type="button">启动服务</button>
+                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-stop" type="button">停止服务</button>
+                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-restart" type="button">重启服务</button>
+                                        <button class="pf-v6-c-button pf-m-tertiary" data-action="fail2ban-reload" type="button">重新加载配置</button>
                                     </div>
                                 </div>
                                 <div class="pf-v6-c-card__body">
@@ -398,7 +398,7 @@
                                                 </label>
                                             </div>
                                             <div class="toolbar">
-                                                <button class="pf-v6-c-button pf-m-danger" type="submit">执行解封</button>
+                                                <button class="pf-v6-c-button pf-m-secondary pf-m-danger" type="submit">执行解封</button>
                                             </div>
                                         </form>
                                     </div>
@@ -426,28 +426,28 @@
         <div class="auth-dialog-backdrop" id="security-auth-dialog" hidden>
             <div class="pf-v6-c-modal-box auth-dialog" role="dialog" aria-modal="true" aria-labelledby="security-auth-title">
                 <div class="auth-dialog__header">
-                    <h1 class="pf-v6-c-title pf-m-2xl auth-dialog__title" id="security-auth-title">Switch to administrative access</h1>
+                    <h1 class="pf-v6-c-title pf-m-2xl auth-dialog__title" id="security-auth-title">切换到管理员访问</h1>
                 </div>
 
                 <form class="auth-dialog__body" id="security-auth-form">
                     <div class="inline-alert" id="security-auth-alert" hidden></div>
 
                     <div class="auth-dialog__field" id="security-auth-method-field" hidden>
-                        <label for="security-auth-method">Method</label>
+                        <label for="security-auth-method">验证方式</label>
                         <select id="security-auth-method"></select>
                     </div>
 
                     <p class="auth-dialog__message" id="security-auth-message" hidden></p>
 
                     <div class="auth-dialog__field" id="security-auth-prompt-field" hidden>
-                        <label for="security-auth-input" id="security-auth-prompt-label">Password</label>
+                        <label for="security-auth-input" id="security-auth-prompt-label">密码</label>
                         <input id="security-auth-input" autocomplete="current-password">
                     </div>
                 </form>
 
                 <div class="auth-dialog__footer">
-                    <button class="pf-v6-c-button pf-m-primary" id="security-auth-submit" type="submit" form="security-auth-form">Authenticate</button>
-                    <button class="pf-v6-c-button pf-m-link" id="security-auth-cancel" type="button">Cancel</button>
+                    <button class="pf-v6-c-button pf-m-primary" id="security-auth-submit" type="submit" form="security-auth-form">验证</button>
+                    <button class="pf-v6-c-button pf-m-link" id="security-auth-cancel" type="button">取消</button>
                 </div>
             </div>
         </div>
