@@ -1,8 +1,8 @@
 const AUTO_REFRESH_MS = 15000;
 
 const state = {
-    activeTab: "firewall",
     firewallBackend: "ufw",
+    securityLogSource: "all",
     firewallRules: {
         columns: [],
         rows: [],
@@ -21,6 +21,7 @@ const state = {
     refreshLocks: {
         firewall: null,
         fail2ban: null,
+        logs: null,
     },
     superuserAllowed: null,
     superuserError: "",
@@ -43,30 +44,28 @@ const state = {
     },
 };
 
-const SERVICE_LINKS = {
-    ufw: [
-        {
-            unit: "ufw.service",
-            label: "ufw.service",
-        },
-    ],
-    iptables: [
-        {
-            unit: "netfilter-persistent.service",
-            label: "netfilter-persistent.service",
-        },
-        {
-            unit: "iptables.service",
-            label: "iptables.service",
-        },
-    ],
-    fail2ban: [
-        {
-            unit: "fail2ban.service",
-            label: "fail2ban.service",
-        },
-    ],
-};
+const SECURITY_LOG_SOURCES = [
+    {
+        id: "all",
+        label: "全部服务",
+        units: ["ufw.service", "iptables.service", "netfilter-persistent.service", "fail2ban.service"],
+    },
+    {
+        id: "ufw",
+        label: "UFW",
+        units: ["ufw.service"],
+    },
+    {
+        id: "iptables",
+        label: "iptables",
+        units: ["iptables.service", "netfilter-persistent.service"],
+    },
+    {
+        id: "fail2ban",
+        label: "Fail2Ban",
+        units: ["fail2ban.service"],
+    },
+];
 
 function getElement(id) {
     return document.getElementById(id);
@@ -99,14 +98,15 @@ function stopAutoRefresh() {
     }
 }
 
-function refreshVisibleTab() {
+function refreshSecurityPage() {
     if (state.superuserAllowed !== true)
         return Promise.resolve();
 
-    if (state.activeTab === "fail2ban")
-        return refreshFail2BanStatus();
-
-    return refreshFirewallStatus();
+    return Promise.all([
+        refreshFirewallStatus(),
+        refreshFail2BanStatus(),
+        refreshSecurityLogs(),
+    ]);
 }
 
 function startAutoRefresh() {
@@ -116,7 +116,7 @@ function startAutoRefresh() {
         return;
 
     state.autoRefreshTimer = window.setInterval(() => {
-        refreshVisibleTab();
+        refreshSecurityPage();
     }, AUTO_REFRESH_MS);
 }
 
@@ -445,7 +445,7 @@ function handleSuperuserStateChange(nextAllowed) {
     renderAccessState();
 
     if (previous !== nextAllowed && nextAllowed === true)
-        refreshVisibleTab();
+        refreshSecurityPage();
 }
 
 function initSuperuser() {
@@ -586,6 +586,7 @@ function setCallout(id, text, tone = "neutral") {
         return;
 
     element.textContent = text;
+    element.hidden = !text;
     element.classList.remove("tone-success", "tone-warning", "tone-danger");
     if (tone === "success")
         element.classList.add("tone-success");
@@ -617,25 +618,6 @@ function summarizeOutput(text, ok = true) {
     return lines[0];
 }
 
-function renderServiceLinks(containerId, services) {
-    const container = document.getElementById(containerId);
-    if (!container)
-        return;
-
-    container.replaceChildren();
-
-    services.forEach(service => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "pf-v6-c-button pf-m-tertiary service-link";
-        button.textContent = service.label;
-        button.addEventListener("click", () => {
-            cockpit.jump(`/system/services#/?name=${encodeURIComponent(service.unit)}`);
-        });
-        container.append(button);
-    });
-}
-
 function renderDetailList(id, items, emptyText = "暂无详情。") {
     const list = document.getElementById(id);
     if (!list)
@@ -643,22 +625,32 @@ function renderDetailList(id, items, emptyText = "暂无详情。") {
 
     list.replaceChildren();
 
-    if (!items.length) {
-        const dt = document.createElement("dt");
-        dt.textContent = "状态";
-        const dd = document.createElement("dd");
-        dd.textContent = emptyText;
-        list.append(dt, dd);
-        return;
-    }
+    const entries = items.length ? items : [["状态", emptyText]];
+    const fragment = document.createDocumentFragment();
 
-    items.forEach(([label, value]) => {
+    entries.forEach(([label, value]) => {
+        const group = document.createElement("div");
+        group.className = "pf-v6-c-description-list__group";
+
         const dt = document.createElement("dt");
-        dt.textContent = label;
+        dt.className = "pf-v6-c-description-list__term";
+        const termText = document.createElement("span");
+        termText.className = "pf-v6-c-description-list__text";
+        termText.textContent = label;
+        dt.append(termText);
+
         const dd = document.createElement("dd");
-        dd.textContent = value;
-        list.append(dt, dd);
+        dd.className = "pf-v6-c-description-list__description";
+        const descriptionText = document.createElement("div");
+        descriptionText.className = "pf-v6-c-description-list__text";
+        descriptionText.textContent = value;
+        dd.append(descriptionText);
+
+        group.append(dt, dd);
+        fragment.append(group);
     });
+
+    list.append(fragment);
 }
 
 function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
@@ -672,14 +664,17 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
     const normalizedRows = rows.map(row => Array.isArray(row) ? { cells: row } : row);
     const hasActions = normalizedRows.some(row => row.delete);
     const headRow = document.createElement("tr");
+    headRow.className = "pf-v6-c-table__tr";
     columns.forEach(column => {
         const th = document.createElement("th");
+        th.className = "pf-v6-c-table__th";
         th.scope = "col";
         th.textContent = column;
         headRow.append(th);
     });
     if (hasActions) {
         const th = document.createElement("th");
+        th.className = "pf-v6-c-table__th";
         th.scope = "col";
         th.textContent = "操作";
         headRow.append(th);
@@ -707,6 +702,7 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
             } else {
                 element.className = "pf-v6-c-table__td";
             }
+            element.dataset.label = columns[index] || "";
             element.textContent = cell;
             tr.append(element);
         });
@@ -714,6 +710,7 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
         if (hasActions) {
             const actionCell = document.createElement("td");
             actionCell.className = "pf-v6-c-table__td data-table__action";
+            actionCell.dataset.label = "操作";
 
             if (row.delete) {
                 const button = document.createElement("button");
@@ -862,6 +859,189 @@ function renderTokenRow(id, items, options = {}) {
         token.textContent = item;
         container.append(token);
     });
+}
+
+function getSecurityLogSource(id = state.securityLogSource) {
+    return SECURITY_LOG_SOURCES.find(source => source.id === id) || SECURITY_LOG_SOURCES[0];
+}
+
+function renderSecurityLogSourceOptions() {
+    const select = document.getElementById("security-log-source");
+    if (!select)
+        return;
+
+    select.replaceChildren();
+    SECURITY_LOG_SOURCES.forEach(source => {
+        const option = document.createElement("option");
+        option.value = source.id;
+        option.textContent = source.label;
+        option.selected = source.id === state.securityLogSource;
+        select.append(option);
+    });
+}
+
+function buildSecurityLogArgs(source = getSecurityLogSource()) {
+    const args = ["journalctl", "-q", "--no-pager", "-n", "10", "-o", "json"];
+    source.units.forEach((unit, index) => {
+        if (index > 0)
+            args.push("+");
+        args.push(`_SYSTEMD_UNIT=${unit}`);
+    });
+    return args;
+}
+
+function getSecurityLogUrl(source = getSecurityLogSource()) {
+    return `/system/logs/#/?prio=debug&_SYSTEMD_UNIT=${encodeURIComponent(source.units.join(","))}`;
+}
+
+function formatJournalTimestamp(entry, options) {
+    const timestamp = Number(entry.__REALTIME_TIMESTAMP);
+    if (!Number.isFinite(timestamp))
+        return "";
+
+    return new Date(timestamp / 1000).toLocaleString("zh-CN", options);
+}
+
+function formatJournalDay(entry) {
+    return formatJournalTimestamp(entry, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+    });
+}
+
+function formatJournalTime(entry) {
+    return formatJournalTimestamp(entry, {
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
+function getJournalIdentifier(entry) {
+    return entry.SYSLOG_IDENTIFIER || entry._COMM || entry._SYSTEMD_UNIT || "journal";
+}
+
+function getJournalMessage(entry) {
+    return String(entry.MESSAGE || "").trim() || "没有日志消息。";
+}
+
+function openJournalEntry(entry) {
+    if (!entry.__CURSOR)
+        return;
+
+    const source = getSecurityLogSource();
+    const parentOptions = encodeURIComponent(JSON.stringify({
+        prio: "debug",
+        _SYSTEMD_UNIT: source.units.join(","),
+    }));
+    cockpit.jump(`system/logs#/${entry.__CURSOR}?parent_options=${parentOptions}`);
+}
+
+function renderSecurityLogs(entries) {
+    const container = document.getElementById("security-log-list");
+    if (!container)
+        return;
+
+    container.replaceChildren();
+
+    if (!entries.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-message";
+        empty.textContent = "没有安全日志。";
+        container.append(empty);
+        return;
+    }
+
+    let currentDay = "";
+    entries.forEach(entry => {
+        const day = formatJournalDay(entry);
+        if (day && day !== currentDay) {
+            currentDay = day;
+            const heading = document.createElement("div");
+            heading.className = "panel-heading";
+            heading.textContent = day;
+            container.append(heading);
+        }
+
+        const row = document.createElement("div");
+        row.className = "cockpit-logline";
+        row.role = "row";
+        row.tabIndex = 0;
+        row.addEventListener("click", () => openJournalEntry(entry));
+        row.addEventListener("keydown", event => {
+            if (event.key === "Enter")
+                openJournalEntry(entry);
+        });
+
+        const warning = document.createElement("div");
+        warning.className = "cockpit-log-warning";
+        warning.role = "cell";
+        warning.textContent = Number(entry.PRIORITY) < 4 ? "!" : "";
+
+        const time = document.createElement("div");
+        time.className = "cockpit-log-time";
+        time.role = "cell";
+        time.textContent = formatJournalTime(entry);
+
+        const message = document.createElement("span");
+        message.className = "cockpit-log-message";
+        message.role = "cell";
+        message.textContent = getJournalMessage(entry);
+
+        const service = document.createElement("div");
+        service.className = "cockpit-log-service";
+        service.role = "cell";
+        service.textContent = getJournalIdentifier(entry);
+
+        row.append(warning, time, message, service);
+        container.append(row);
+    });
+}
+
+function renderSecurityLogMessage(message) {
+    const container = document.getElementById("security-log-list");
+    if (!container)
+        return;
+
+    const empty = document.createElement("div");
+    empty.className = "empty-message";
+    empty.textContent = message;
+    container.replaceChildren(empty);
+}
+
+async function refreshSecurityLogs() {
+    return withRefreshLock("logs", async () => {
+        if (state.superuserAllowed !== true)
+            return;
+
+        renderSecurityLogMessage("正在加载安全日志...");
+        const result = await capture(buildSecurityLogArgs());
+        if (!result.ok) {
+            renderSecurityLogMessage(summarizeOutput(result.output, false));
+            return;
+        }
+
+        const entries = String(result.output || "")
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean)
+            .map(line => {
+                try {
+                    return JSON.parse(line);
+                } catch (_error) {
+                    return null;
+                }
+            })
+            .filter(Boolean);
+
+        renderSecurityLogs(entries);
+    });
+}
+
+function switchSecurityLogSource(sourceId) {
+    state.securityLogSource = sourceId;
+    renderSecurityLogSourceOptions();
+    refreshSecurityLogs();
 }
 
 function normalizeStatus(value) {
@@ -1096,15 +1276,9 @@ function parseFail2BanJail(output, jailName) {
     };
 }
 
-function updateFirewallServices() {
-    const services = SERVICE_LINKS[state.firewallBackend];
-    renderServiceLinks("firewall-service-links", services);
-}
-
 function renderFirewallStatus(parsed) {
     setText("firewall-backend-label", state.firewallBackend.toUpperCase());
     setText("firewall-summary-copy", parsed.summary);
-    setText("firewall-rule-count", parsed.ruleCount);
     setText("firewall-policy-summary", parsed.policySummary);
     setBadge("firewall-status-pill", parsed.statusLabel, parsed.tone);
     renderDetailList("firewall-details", parsed.details, "没有解析到防火墙详情。");
@@ -1117,7 +1291,6 @@ function renderFirewallStatus(parsed) {
 
 function renderFirewallError(message) {
     setText("firewall-summary-copy", summarizeOutput(message, false));
-    setText("firewall-rule-count", "--");
     setText("firewall-policy-summary", "状态刷新失败。");
     setBadge("firewall-status-pill", "刷新失败", "danger");
     renderDetailList("firewall-details", [["错误", summarizeOutput(message, false)]], "状态刷新失败。");
@@ -1182,8 +1355,10 @@ async function execute(prefix, label, argsOrScript, options = {}) {
         showCommandResult(prefix, label, `执行中...\n\n${commandLabel}`, true, "正在执行命令...");
 
     const result = await capture(argsOrScript, options);
-    if (shouldUpdateResult)
+    if (shouldUpdateResult) {
         showCommandResult(prefix, result.ok ? label : `${label} 失败`, result.output, result.ok, options.summary);
+        refreshSecurityLogs();
+    }
 
     return result;
 }
@@ -1193,7 +1368,6 @@ async function refreshFirewallStatus() {
         if (state.superuserAllowed !== true)
             return;
 
-        updateFirewallServices();
         setText("firewall-summary-copy", "正在刷新防火墙状态...");
         setBadge("firewall-status-pill", "加载中", "loading");
 
@@ -1289,29 +1463,6 @@ async function loadFail2BanJail(jail, options = {}) {
         showCommandResult("fail2ban", `jail: ${jailName}`, result.output, true, parsed.summary);
 }
 
-function switchTab(tab) {
-    state.activeTab = tab;
-
-    document.querySelectorAll(".tab-link").forEach(button => {
-        const active = button.dataset.tab === tab;
-        button.classList.toggle("pf-m-current", active);
-        button.setAttribute("aria-current", active ? "page" : "false");
-    });
-
-    document.querySelectorAll(".tab-panel").forEach(panel => {
-        const active = panel.dataset.panel === tab;
-        panel.classList.toggle("active", active);
-        panel.hidden = !active;
-    });
-
-    setHidden("firewall-backend-toggle", tab !== "firewall");
-    if (tab !== "firewall" && state.firewallDialog.open)
-        closeFirewallDialog();
-
-    if (state.superuserAllowed === true)
-        refreshVisibleTab();
-}
-
 function switchFirewallBackend(backend, options = {}) {
     state.firewallBackend = backend;
 
@@ -1324,7 +1475,6 @@ function switchFirewallBackend(backend, options = {}) {
     updateFirewallActionBar();
     if (state.firewallDialog.open)
         closeFirewallDialog();
-    updateFirewallServices();
     if (options.refresh !== false)
         refreshFirewallStatus();
 }
@@ -1596,10 +1746,6 @@ async function handleFail2BanUnban(event) {
 }
 
 function bindEvents() {
-    document.querySelectorAll(".tab-link").forEach(button => {
-        button.addEventListener("click", () => switchTab(button.dataset.tab));
-    });
-
     document.querySelectorAll(".backend-button").forEach(button => {
         button.addEventListener("click", () => switchFirewallBackend(button.dataset.backend));
     });
@@ -1652,6 +1798,13 @@ function bindEvents() {
         event.preventDefault();
         jumpToFirewallRulesPage(event.target.value);
     });
+    document.getElementById("security-log-source")?.addEventListener("change", event => {
+        switchSecurityLogSource(event.target.value);
+    });
+    document.getElementById("security-log-refresh")?.addEventListener("click", refreshSecurityLogs);
+    document.getElementById("security-log-view-all")?.addEventListener("click", () => {
+        cockpit.jump(getSecurityLogUrl());
+    });
     document.getElementById("fail2ban-jail-form")?.addEventListener("submit", handleFail2BanJail);
     document.getElementById("fail2ban-unban-form")?.addEventListener("submit", handleFail2BanUnban);
 
@@ -1662,7 +1815,7 @@ function bindEvents() {
         }
 
         if (state.superuserAllowed === true) {
-            refreshVisibleTab();
+            refreshSecurityPage();
             startAutoRefresh();
         }
     });
@@ -1682,9 +1835,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     bindEvents();
     bindDarkMode();
     initSuperuser();
-    renderServiceLinks("fail2ban-service-links", SERVICE_LINKS.fail2ban);
+    renderSecurityLogSourceOptions();
     clearFail2BanJail("可从 jail 列表快速打开，也可以手动输入名称查看。");
-    switchTab(state.activeTab);
     switchFirewallBackend(state.firewallBackend, { refresh: false });
     renderFirewallDialog();
     renderSuperuserDialog();
