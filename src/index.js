@@ -17,11 +17,34 @@ const state = {
         error: "",
     },
     currentJail: "",
+    fail2banService: "fail2ban.service",
     autoRefreshTimer: null,
     refreshLocks: {
         firewall: null,
         fail2ban: null,
         logs: null,
+    },
+    securityLogsRefreshPending: false,
+    toolInstalled: {
+        ufw: null,
+        iptables: null,
+        fail2ban: null,
+    },
+    toolCommand: {
+        ufw: "ufw",
+        iptables: "iptables",
+        fail2ban: "fail2ban-client",
+    },
+    installDialog: {
+        open: false,
+        toolId: "",
+        packageNames: [],
+        data: null,
+        checking: false,
+        busy: false,
+        progressMessage: "",
+        error: "",
+        cancel: null,
     },
     superuserAllowed: null,
     superuserError: "",
@@ -44,21 +67,27 @@ const state = {
     },
 };
 
+const SECURITY_LOG_FETCH_LIMIT = 200;
+const SECURITY_LOG_DISPLAY_LIMIT = 10;
+
 const SECURITY_LOG_SOURCES = [
     {
         id: "all",
         label: "全部服务",
-        units: ["ufw.service", "iptables.service", "netfilter-persistent.service", "fail2ban.service"],
+        units: ["ufw.service", "iptables.service", "ip6tables.service", "netfilter-persistent.service", "nftables.service", "fail2ban.service"],
+        kernelScope: "firewall",
     },
     {
         id: "ufw",
         label: "UFW",
         units: ["ufw.service"],
+        kernelScope: "ufw",
     },
     {
         id: "iptables",
         label: "iptables",
-        units: ["iptables.service", "netfilter-persistent.service"],
+        units: ["iptables.service", "ip6tables.service", "netfilter-persistent.service", "nftables.service"],
+        kernelScope: "iptables",
     },
     {
         id: "fail2ban",
@@ -66,6 +95,83 @@ const SECURITY_LOG_SOURCES = [
         units: ["fail2ban.service"],
     },
 ];
+
+const REQUIRED_TOOLS = {
+    ufw: {
+        id: "ufw",
+        label: "UFW",
+        command: "ufw",
+        commands: ["ufw"],
+        paths: ["/usr/sbin/ufw", "/sbin/ufw"],
+        packages: ["ufw"],
+        installTitle: "安装 UFW",
+        installCopy: "需要安装 UFW 才能管理 UFW 防火墙规则。",
+    },
+    iptables: {
+        id: "iptables",
+        label: "iptables",
+        command: "iptables",
+        commands: ["iptables", "iptables-nft", "iptables-legacy"],
+        paths: ["/usr/sbin/iptables", "/sbin/iptables", "/usr/bin/iptables", "/usr/sbin/iptables-nft", "/usr/sbin/iptables-legacy"],
+        packages: ["iptables"],
+        packageCandidates: [["iptables"], ["iptables-nft"], ["iptables-services"]],
+        installTitle: "安装 iptables",
+        installCopy: "需要安装 iptables 才能管理 iptables INPUT 规则。",
+    },
+    fail2ban: {
+        id: "fail2ban",
+        label: "Fail2Ban",
+        command: "fail2ban-client",
+        commands: ["fail2ban-client"],
+        paths: ["/usr/bin/fail2ban-client", "/usr/sbin/fail2ban-client"],
+        packages: ["fail2ban"],
+        packageCandidates: [["fail2ban"], ["fail2ban-server"]],
+        installTitle: "安装 Fail2Ban",
+        installCopy: "需要安装 Fail2Ban 才能查看 jail 状态和管理封禁 IP。",
+    },
+};
+
+const INSTALL_PROGRESS_TYPE = {
+    DOWNLOADING: 0,
+    UPDATING: 1,
+    INSTALLING: 2,
+    REMOVING: 3,
+    REINSTALLING: 4,
+    DOWNGRADING: 5,
+};
+
+const PACKAGEKIT_ENUM = {
+    EXIT_SUCCESS: 1,
+    EXIT_CANCELLED: 3,
+    INFO_DOWNLOADING: 10,
+    INFO_UPDATING: 11,
+    INFO_INSTALLING: 12,
+    INFO_REMOVING: 13,
+    INFO_REINSTALLING: 19,
+    INFO_DOWNGRADING: 20,
+    STATUS_WAIT: 1,
+    STATUS_WAITING_FOR_LOCK: 30,
+    FILTER_NEWEST: (1 << 16),
+    FILTER_ARCH: (1 << 18),
+    FILTER_NOT_SOURCE: (1 << 21),
+    TRANSACTION_FLAG_SIMULATE: (1 << 2),
+};
+
+const PACKAGEKIT_INSTALL_PROGRESS_MAP = {
+    [PACKAGEKIT_ENUM.INFO_DOWNLOADING]: INSTALL_PROGRESS_TYPE.DOWNLOADING,
+    [PACKAGEKIT_ENUM.INFO_UPDATING]: INSTALL_PROGRESS_TYPE.UPDATING,
+    [PACKAGEKIT_ENUM.INFO_INSTALLING]: INSTALL_PROGRESS_TYPE.INSTALLING,
+    [PACKAGEKIT_ENUM.INFO_REMOVING]: INSTALL_PROGRESS_TYPE.REMOVING,
+    [PACKAGEKIT_ENUM.INFO_REINSTALLING]: INSTALL_PROGRESS_TYPE.REINSTALLING,
+    [PACKAGEKIT_ENUM.INFO_DOWNGRADING]: INSTALL_PROGRESS_TYPE.DOWNGRADING,
+};
+
+const PACKAGEKIT_TRANSACTION_INTERFACE = "org.freedesktop.PackageKit.Transaction";
+const SYSTEM_COMMAND_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+const FAIL2BAN_SERVICE_CANDIDATES = ["fail2ban.service", "fail2ban-server.service"];
+let packageManager = null;
+let packageKitClient = null;
+let dnf5Client = null;
 
 function getElement(id) {
     return document.getElementById(id);
@@ -116,6 +222,8 @@ function startAutoRefresh() {
         return;
 
     state.autoRefreshTimer = window.setInterval(() => {
+        if (document.hidden || state.superuserAllowed !== true)
+            return;
         refreshSecurityPage();
     }, AUTO_REFRESH_MS);
 }
@@ -393,6 +501,7 @@ function renderAccessState() {
     const title = getElement("security-access-title");
     const copy = getElement("security-access-copy");
     const action = getElement("security-access-action");
+    const spinner = getElement("security-access-spinner");
 
     if (state.superuserAllowed === true) {
         if (panel)
@@ -402,6 +511,8 @@ function renderAccessState() {
             pageContent.hidden = false;
         if (action)
             action.hidden = true;
+        if (spinner)
+            spinner.hidden = true;
         startAutoRefresh();
         return;
     }
@@ -417,6 +528,8 @@ function renderAccessState() {
     if (state.superuserAllowed === null) {
         if (panel)
             panel.classList.add("is-loading");
+        if (spinner)
+            spinner.hidden = false;
         title.textContent = "";
         copy.textContent = "";
         action.hidden = true;
@@ -426,18 +539,22 @@ function renderAccessState() {
 
     if (panel)
         panel.classList.remove("is-loading");
-    title.textContent = "需要管理员权限";
+    if (spinner)
+        spinner.hidden = true;
+    title.textContent = "需要管理员访问权限";
     copy.textContent = state.superuserError
-        ? `配置防火墙与其他安全选项需要管理员权限。${state.superuserError}`
-        : "配置防火墙与其他安全选项需要管理员权限。";
+        ? `配置防火墙、Fail2Ban 和查看安全日志需要管理员访问权限。${state.superuserError}`
+        : "配置防火墙、Fail2Ban 和查看安全日志需要管理员访问权限。";
     action.hidden = false;
     action.disabled = false;
-    action.textContent = "启用管理员访问";
+    action.textContent = "开启管理员访问";
 }
 
 function handleSuperuserStateChange(nextAllowed) {
     const previous = state.superuserAllowed;
     state.superuserAllowed = nextAllowed;
+    if (previous !== nextAllowed)
+        resetDnf5Connection();
     if (nextAllowed !== false)
         state.superuserError = "";
     if (nextAllowed === true && state.superuserDialog.open)
@@ -473,6 +590,7 @@ function run(args) {
     return cockpit.spawn(args, {
         superuser: "require",
         err: "out",
+        environ: [`PATH=${SYSTEM_COMMAND_PATH}`, "LC_ALL=C"],
     }).then(output => output.trim());
 }
 
@@ -485,6 +603,621 @@ function capture(argsOrScript, options = {}) {
     return runner(argsOrScript)
         .then(output => ({ ok: true, output }))
         .catch(error => ({ ok: false, output: formatError(error) }));
+}
+
+function runUnprivileged(args) {
+    return cockpit.spawn(args, {
+        err: "out",
+        environ: [`PATH=${SYSTEM_COMMAND_PATH}`, "LC_ALL=C"],
+    }).then(output => output.trim());
+}
+
+function captureUnprivileged(args) {
+    return runUnprivileged(args)
+        .then(output => ({ ok: true, output }))
+        .catch(error => ({ ok: false, output: formatError(error) }));
+}
+
+function getToolCommand(toolId) {
+    return state.toolCommand[toolId] || REQUIRED_TOOLS[toolId]?.command || toolId;
+}
+
+async function checkToolInstalled(toolId, options = {}) {
+    const tool = REQUIRED_TOOLS[toolId];
+    if (!tool)
+        return false;
+
+    if (options.force !== true && state.toolInstalled[toolId] !== null)
+        return state.toolInstalled[toolId];
+
+    const commands = tool.commands || [tool.command];
+    const paths = tool.paths || [];
+    // Decide by the path we print, not by the script's exit status. cockpit.spawn's
+    // resolve/reject behaviour around non-zero exits proved unreliable here (a missing
+    // tool was still being treated as installed), and a login shell (-lc) can leak
+    // /etc/profile output into stdout. Use a plain `sh -c` that always exits 0 and only
+    // prints a path when the tool is actually found.
+    const script = [
+        `PATH=${SYSTEM_COMMAND_PATH}`,
+        ...commands.map(command => `command -v ${command} 2>/dev/null && exit 0`),
+        ...paths.map(path => `[ -x ${path} ] && echo ${path} && exit 0`),
+        "exit 0",
+    ].join("\n");
+    const result = await captureUnprivileged(["sh", "-c", script]);
+    const found = result.ok
+        ? (result.output.split(/\r?\n/).map(line => line.trim()).find(Boolean) || "")
+        : "";
+    state.toolInstalled[toolId] = Boolean(found);
+    if (found)
+        state.toolCommand[toolId] = found;
+    return Boolean(found);
+}
+
+function createPackageManagerError(name, message) {
+    const error = new Error(message);
+    error.name = name;
+    return error;
+}
+
+async function isImmutableOS() {
+    try {
+        const options = await runUnprivileged(["findmnt", "-T", "/usr", "-n", "-o", "VFS-OPTIONS"]);
+        return options.split(",").includes("ro");
+    } catch (error) {
+        console.debug("Unable to detect immutable OS", error);
+        return false;
+    }
+}
+
+async function detectDnf5Daemon() {
+    const client = cockpit.dbus("org.rpm.dnf.v0", { superuser: "try" });
+    let detected = false;
+
+    try {
+        await client.call("/org/rpm/dnf/v0", "org.freedesktop.DBus.Peer", "Ping", []);
+        detected = true;
+    } catch (error) {
+        console.debug("dnf5daemon not supported", error);
+    } finally {
+        client.close();
+    }
+
+    return detected;
+}
+
+async function detectPackageKit() {
+    const client = cockpit.dbus("org.freedesktop.PackageKit", { superuser: "try" });
+    let detected = false;
+
+    try {
+        await client.call("/org/freedesktop/PackageKit", "org.freedesktop.DBus.Properties", "Get", ["org.freedesktop.PackageKit", "VersionMajor"]);
+        detected = true;
+    } catch (error) {
+        console.debug("PackageKit not supported", error);
+    } finally {
+        client.close();
+    }
+
+    return detected;
+}
+
+async function getPackageManager(forcePackageKit = false) {
+    if (packageManager !== null)
+        return packageManager;
+
+    const [unsupported, hasDnf5Daemon, hasPackageKit] = await Promise.all([
+        isImmutableOS(),
+        detectDnf5Daemon(),
+        detectPackageKit(),
+    ]);
+
+    if (unsupported)
+        throw createPackageManagerError("UnsupportedError", "Cockpit does not support installing additional packages on immutable operating systems");
+
+    if (hasDnf5Daemon && !forcePackageKit) {
+        packageManager = createDnf5DaemonManager();
+        return packageManager;
+    }
+
+    if (hasPackageKit) {
+        packageManager = createPackageKitManager();
+        return packageManager;
+    }
+
+    throw createPackageManagerError("NotFoundError", "No package manager found");
+}
+
+function resetDnf5Connection() {
+    if (dnf5Client)
+        dnf5Client.close();
+    dnf5Client = null;
+}
+
+function packageKitDbusClient() {
+    if (!packageKitClient) {
+        packageKitClient = cockpit.dbus("org.freedesktop.PackageKit", { superuser: "try", track: true });
+        packageKitClient.addEventListener("close", () => {
+            packageKitClient = null;
+        });
+    }
+
+    return packageKitClient;
+}
+
+function packageKitCall(objectPath, iface, method, args, options) {
+    return packageKitDbusClient().call(objectPath, iface, method, args, options);
+}
+
+function watchPackageKitTransaction(transactionPath, signalHandlers, notifyHandler) {
+    const subscriptions = [];
+    const client = packageKitDbusClient();
+
+    function onClose(_event, error) {
+        if (signalHandlers.ErrorCode)
+            signalHandlers.ErrorCode("close", formatError(error) || "PackageKit 已断开连接。");
+        if (signalHandlers.Finished)
+            signalHandlers.Finished(PACKAGEKIT_ENUM.EXIT_CANCELLED);
+    }
+
+    function onNotify(reply) {
+        const iface = reply?.detail?.[transactionPath]?.[PACKAGEKIT_TRANSACTION_INTERFACE];
+        if (iface)
+            notifyHandler(iface, transactionPath);
+    }
+
+    client.addEventListener("close", onClose);
+
+    if (signalHandlers) {
+        Object.keys(signalHandlers).forEach(handler => {
+            subscriptions.push(client.subscribe({
+                interface: PACKAGEKIT_TRANSACTION_INTERFACE,
+                path: transactionPath,
+                member: handler,
+            }, (_path, _iface, _signal, args) => signalHandlers[handler](...args)));
+        });
+    }
+
+    if (notifyHandler) {
+        subscriptions.push(client.watch(transactionPath));
+        client.addEventListener("notify", onNotify);
+    }
+
+    subscriptions.push(client.subscribe({
+        interface: PACKAGEKIT_TRANSACTION_INTERFACE,
+        path: transactionPath,
+        member: "Finished",
+    }, () => {
+        subscriptions.forEach(subscription => subscription.remove());
+        client.removeEventListener("close", onClose);
+        if (notifyHandler)
+            client.removeEventListener("notify", onNotify);
+    }));
+
+    return subscriptions[subscriptions.length - 1];
+}
+
+function packageKitTransaction(method, arglist, signalHandlers, notifyHandler) {
+    return packageKitCall("/org/freedesktop/PackageKit", "org.freedesktop.PackageKit", "CreateTransaction", [])
+        .then(([transactionPath]) => {
+            if (!signalHandlers && !notifyHandler)
+                return transactionPath;
+
+            watchPackageKitTransaction(transactionPath, signalHandlers, notifyHandler);
+            if (!method)
+                return transactionPath;
+
+            return packageKitCall(transactionPath, PACKAGEKIT_TRANSACTION_INTERFACE, method, arglist)
+                .then(() => transactionPath);
+        });
+}
+
+function packageKitCancellableTransaction(method, arglist, progressCallback, signalHandlers = {}) {
+    return new Promise((resolve, reject) => {
+        let cancelled = false;
+        let status;
+        let allowWaitStatus = false;
+        const progressData = {
+            waiting: false,
+            percentage: 0,
+            cancel: null,
+        };
+
+        function changed(props, transactionPath) {
+            function cancel() {
+                cancelled = true;
+                packageKitCall(transactionPath, PACKAGEKIT_TRANSACTION_INTERFACE, "Cancel", []).catch(() => {});
+            }
+
+            if (!progressCallback)
+                return;
+
+            if ("Status" in props)
+                status = props.Status;
+            progressData.waiting = allowWaitStatus && (status === PACKAGEKIT_ENUM.STATUS_WAIT || status === PACKAGEKIT_ENUM.STATUS_WAITING_FOR_LOCK);
+            if ("AllowCancel" in props)
+                progressData.cancel = props.AllowCancel ? cancel : null;
+            if ("Percentage" in props && props.Percentage <= 100)
+                progressData.percentage = props.Percentage;
+
+            progressCallback(progressData);
+        }
+
+        window.setTimeout(() => {
+            allowWaitStatus = true;
+            changed({});
+        }, 1000);
+
+        packageKitTransaction(method, arglist, {
+            ...signalHandlers,
+            ErrorCode: (code, detail) => {
+                progressCallback = null;
+                reject(new Error(cancelled ? "cancelled" : detail || code));
+            },
+            Finished: exit => {
+                progressCallback = null;
+                if (cancelled || exit === PACKAGEKIT_ENUM.EXIT_CANCELLED)
+                    reject(new Error("cancelled"));
+                else
+                    resolve(exit);
+            },
+        }, changed).catch(error => {
+            progressCallback = null;
+            reject(error);
+        });
+    });
+}
+
+function packageProgressMessage(prefix, progress) {
+    if (progress?.waiting)
+        return "正在等待其他软件管理操作完成";
+    if (!progress?.package)
+        return prefix;
+
+    if (progress.info === INSTALL_PROGRESS_TYPE.DOWNLOADING)
+        return `正在下载 ${progress.package}`;
+    if (progress.info === INSTALL_PROGRESS_TYPE.REMOVING)
+        return `正在移除 ${progress.package}`;
+
+    return `正在安装 ${progress.package}`;
+}
+
+function formatInstallError(error) {
+    const message = formatError(error);
+    if (/ServiceUnknown|not-found|not supported|No package manager/i.test(message))
+        return "当前系统没有可用的软件管理服务，无法从此页面安装软件包。";
+    if (/immutable|read-only|只读|不可变/i.test(message))
+        return "当前系统不支持在不可变的 /usr 上安装附加软件包。";
+    return message;
+}
+
+async function checkMissingPackages(packageNames, progressCallback) {
+    const data = {
+        download_size: 0,
+        missing_ids: [],
+        missing_names: [],
+        unavailable_names: [],
+        extra_names: [],
+        remove_names: [],
+    };
+
+    await packageKitCancellableTransaction("RefreshCache", [false], progressCallback);
+
+    const installedNames = new Set();
+    await packageKitCancellableTransaction("Resolve", [
+        PACKAGEKIT_ENUM.FILTER_ARCH | PACKAGEKIT_ENUM.FILTER_NOT_SOURCE | PACKAGEKIT_ENUM.FILTER_NEWEST,
+        packageNames,
+    ], progressCallback, {
+        Package: (_info, packageId) => {
+            const parts = packageId.split(";");
+            const repos = parts[3]?.split(":") || [];
+            if (repos.includes("installed")) {
+                installedNames.add(parts[0]);
+                return;
+            }
+
+            data.missing_ids.push(packageId);
+            data.missing_names.push(parts[0]);
+        },
+    });
+
+    packageNames.forEach(name => {
+        if (!installedNames.has(name) && !data.missing_names.includes(name))
+            data.unavailable_names.push(name);
+    });
+
+    if (data.missing_ids.length > 0 && data.unavailable_names.length === 0) {
+        const installIds = [];
+        await packageKitCancellableTransaction("InstallPackages", [
+            PACKAGEKIT_ENUM.TRANSACTION_FLAG_SIMULATE,
+            data.missing_ids,
+        ], progressCallback, {
+            Package: (info, packageId) => {
+                const name = packageId.split(";")[0];
+                if (info === PACKAGEKIT_ENUM.INFO_REMOVING) {
+                    data.remove_names.push(name);
+                } else if (info === PACKAGEKIT_ENUM.INFO_INSTALLING || info === PACKAGEKIT_ENUM.INFO_UPDATING) {
+                    installIds.push(packageId);
+                    if (!data.missing_names.includes(name))
+                        data.extra_names.push(name);
+                }
+            },
+        });
+
+        if (installIds.length > 0) {
+            await packageKitCancellableTransaction("GetDetails", [installIds], progressCallback, {
+                Details: (...args) => {
+                    const details = args[0];
+                    const size = details?.size?.v || args[5]?.v || args[5];
+                    if (Number.isFinite(Number(size)))
+                        data.download_size += Number(size);
+                },
+            });
+        }
+    }
+
+    data.missing_names.sort();
+    data.extra_names.sort();
+    data.remove_names.sort();
+    return data;
+}
+
+async function installMissingPackages(data, progressCallback) {
+    if (!data || data.missing_ids.length === 0)
+        return;
+
+    let lastProgress = null;
+    let lastInfo = 0;
+    let lastName = "";
+
+    function reportProgress() {
+        if (!lastProgress)
+            return;
+
+        progressCallback({
+            waiting: lastProgress.waiting,
+            percentage: lastProgress.percentage,
+            cancel: lastProgress.cancel,
+            info: PACKAGEKIT_INSTALL_PROGRESS_MAP[lastInfo],
+            package: lastName,
+        });
+    }
+
+    await packageKitCancellableTransaction("InstallPackages", [0, data.missing_ids], progress => {
+        lastProgress = progress;
+        reportProgress();
+    }, {
+        Package: (info, packageId) => {
+            lastInfo = info;
+            lastName = packageId.split(";")[0];
+            reportProgress();
+        },
+    });
+}
+
+function createPackageKitManager() {
+    return {
+        name: "packagekit",
+        check_missing_packages: checkMissingPackages,
+        install_missing_packages: installMissingPackages,
+    };
+}
+
+function dnf5DbusClient() {
+    if (!dnf5Client) {
+        dnf5Client = cockpit.dbus("org.rpm.dnf.v0", { superuser: "try", track: true });
+        dnf5Client.addEventListener("close", () => {
+            dnf5Client = null;
+        });
+    }
+
+    return dnf5Client;
+}
+
+function dnf5Call(objectPath, iface, method, args, options) {
+    return dnf5DbusClient().call(objectPath, iface, method, args, options);
+}
+
+async function openDnf5Session() {
+    const [session] = await dnf5Call("/org/rpm/dnf/v0", "org.rpm.dnf.v0.SessionManager", "open_session", [{}]);
+    return session;
+}
+
+function closeDnf5Session(session) {
+    return dnf5Call("/org/rpm/dnf/v0", "org.rpm.dnf.v0.SessionManager", "close_session", [session]);
+}
+
+async function withDnf5Session(executor, signalHandler) {
+    let session = null;
+    let subscription = null;
+    const client = dnf5DbusClient();
+
+    if (signalHandler)
+        subscription = client.subscribe({}, signalHandler);
+
+    try {
+        session = await openDnf5Session();
+        return await executor(session);
+    } finally {
+        if (session)
+            await closeDnf5Session(session);
+        if (subscription)
+            subscription.remove();
+    }
+}
+
+function dnf5PackageName(pkg) {
+    return pkg?.name?.v || "";
+}
+
+function createDnf5DaemonManager() {
+    async function refresh(_force, _progressCallback) {
+        await withDnf5Session(async session => {
+            await dnf5Call(session, "org.rpm.dnf.v0.Base", "read_all_repos", []);
+            const [, resolveResult] = await dnf5Call(session, "org.rpm.dnf.v0.Goal", "resolve", [{}]);
+            if (resolveResult !== 0) {
+                const [problem] = await dnf5Call(session, "org.rpm.dnf.v0.Goal", "get_transaction_problems_string", []);
+                throw createPackageManagerError("ResolveError", `Resolving read_all_repos failed with result=${resolveResult} - ${problem}`);
+            }
+            await dnf5Call(session, "org.rpm.dnf.v0.Goal", "do_transaction", [{}]);
+        });
+    }
+
+    async function checkMissingPackagesDnf5(packageNames, progressCallback) {
+        const data = {
+            download_size: 0,
+            missing_ids: [],
+            missing_names: [],
+            unavailable_names: [],
+            extra_names: [],
+            remove_names: [],
+        };
+
+        if (packageNames.length === 0)
+            return data;
+
+        async function resolve(session) {
+            const installedNames = new Set();
+            const seenNames = new Set();
+            const [results] = await dnf5Call(session, "org.rpm.dnf.v0.rpm.Rpm", "list", [{
+                package_attrs: { t: "as", v: ["name", "is_installed"] },
+                scope: { t: "s", v: "all" },
+                patterns: { t: "as", v: packageNames },
+            }]);
+
+            for (const pkg of results || []) {
+                const name = dnf5PackageName(pkg);
+                if (!name || seenNames.has(name))
+                    continue;
+
+                if (pkg.is_installed?.v) {
+                    installedNames.add(name);
+                } else {
+                    data.missing_ids.push(name);
+                    data.missing_names.push(name);
+                }
+
+                seenNames.add(name);
+            }
+
+            packageNames.forEach(name => {
+                if (!installedNames.has(name) && !data.missing_names.includes(name))
+                    data.unavailable_names.push(name);
+            });
+        }
+
+        async function simulate(session) {
+            if (data.missing_ids.length === 0 || data.unavailable_names.length > 0)
+                return;
+
+            await dnf5Call(session, "org.rpm.dnf.v0.rpm.Rpm", "install", [packageNames, {}]);
+            const [transactionItems, result] = await dnf5Call(session, "org.rpm.dnf.v0.Goal", "resolve", [{}]);
+            if (result !== 0) {
+                const [problem] = await dnf5Call(session, "org.rpm.dnf.v0.Goal", "get_transaction_problems_string", []);
+                throw createPackageManagerError("ResolveError", `Resolving install failed with result=${result}. ${problem}`);
+            }
+
+            for (const transactionItem of transactionItems || []) {
+                const [objectType, action, reason,, pkg] = transactionItem;
+                const name = dnf5PackageName(pkg);
+                if (objectType !== "Package" || !name)
+                    continue;
+
+                data.download_size += Number(pkg.download_size?.v || 0);
+                if (reason === "Dependency" && !data.missing_names.includes(name))
+                    data.extra_names.push(name);
+                if (action === "Replaced" && !data.remove_names.includes(name))
+                    data.remove_names.push(name);
+            }
+
+            await dnf5Call(session, "org.rpm.dnf.v0.Goal", "reset", []);
+        }
+
+        function signalEmitted() {
+            if (progressCallback) {
+                progressCallback({
+                    waiting: false,
+                    percentage: 0,
+                    cancel: null,
+                });
+            }
+        }
+
+        await refresh(false);
+        await withDnf5Session(async session => {
+            await resolve(session);
+            await simulate(session);
+        }, signalEmitted);
+
+        data.missing_names.sort();
+        data.extra_names.sort();
+        data.remove_names.sort();
+        return data;
+    }
+
+    async function installMissingPackagesDnf5(data, progressCallback) {
+        if (!data || data.missing_ids.length === 0)
+            return;
+
+        let lastInfo = INSTALL_PROGRESS_TYPE.INSTALLING;
+        let lastProgress = 0;
+        let lastName = "";
+        let totalPackages = 0;
+
+        function signalEmitted(_path, _iface, signal, args) {
+            switch (signal) {
+            case "download_add_new":
+                lastInfo = INSTALL_PROGRESS_TYPE.DOWNLOADING;
+                lastName = args[2] || "";
+                break;
+            case "download_progress":
+                lastInfo = INSTALL_PROGRESS_TYPE.DOWNLOADING;
+                break;
+            case "download_end":
+                lastInfo = INSTALL_PROGRESS_TYPE.INSTALLING;
+                lastName = "";
+                break;
+            case "transaction_before_begin":
+                totalPackages = Number(args[1] || 0);
+                lastInfo = INSTALL_PROGRESS_TYPE.INSTALLING;
+                break;
+            case "transaction_elem_progress":
+                lastName = args[1] || "";
+                lastProgress = totalPackages ? Number(args[2] || 0) / totalPackages * 100 : 0;
+                break;
+            }
+
+            if (progressCallback) {
+                progressCallback({
+                    cancel: null,
+                    info: lastInfo,
+                    package: lastName,
+                    percentage: lastProgress,
+                    waiting: false,
+                });
+            }
+        }
+
+        await withDnf5Session(async session => {
+            try {
+                await dnf5Call(session, "org.rpm.dnf.v0.rpm.Rpm", "install", [data.missing_names, {}]);
+                const [, resolveResult] = await dnf5Call(session, "org.rpm.dnf.v0.Goal", "resolve", [{}]);
+                if (resolveResult !== 0) {
+                    const [problem] = await dnf5Call(session, "org.rpm.dnf.v0.Goal", "get_transaction_problems_string", []);
+                    throw createPackageManagerError("ResolveError", `Resolving install failed with result=${resolveResult} ${problem}`);
+                }
+                await dnf5Call(session, "org.rpm.dnf.v0.Goal", "do_transaction", [{}]);
+            } catch (error) {
+                console.warn("install error", error);
+            }
+        }, signalEmitted);
+    }
+
+    return {
+        name: "dnf5daemon",
+        check_missing_packages: checkMissingPackagesDnf5,
+        install_missing_packages: installMissingPackagesDnf5,
+        refresh,
+    };
 }
 
 function formatError(error) {
@@ -596,6 +1329,286 @@ function setCallout(id, text, tone = "neutral") {
         element.classList.add("tone-danger");
 }
 
+function getCurrentFirewallTool() {
+    return REQUIRED_TOOLS[state.firewallBackend] || REQUIRED_TOOLS.ufw;
+}
+
+function renderFirewallInstallState(missing) {
+    const tool = getCurrentFirewallTool();
+    const content = getElement("firewall-settings-content");
+    const installState = getElement("firewall-install-state");
+    const title = getElement("firewall-install-title");
+    const copy = getElement("firewall-install-copy");
+    const action = getElement("firewall-install-action");
+
+    if (content)
+        content.hidden = Boolean(missing);
+    if (installState)
+        installState.hidden = !missing;
+
+    if (!missing)
+        return;
+
+    setBadge("firewall-status-pill", "未安装", "warning");
+    if (title)
+        title.textContent = tool.installTitle;
+    if (copy)
+        copy.textContent = tool.installCopy;
+    if (action) {
+        action.textContent = tool.installTitle;
+        action.dataset.installTool = tool.id;
+    }
+}
+
+function renderFail2BanInstallState(missing) {
+    const content = getElement("fail2ban-settings-content");
+    const installState = getElement("fail2ban-install-state");
+
+    if (content)
+        content.hidden = Boolean(missing);
+    if (installState)
+        installState.hidden = !missing;
+
+    if (missing)
+        setBadge("fail2ban-service-pill", "未安装", "warning");
+}
+
+function resetInstallDialog(options = {}) {
+    if (options.cancel !== false && typeof state.installDialog.cancel === "function")
+        state.installDialog.cancel();
+
+    state.installDialog = {
+        open: false,
+        toolId: "",
+        packageNames: [],
+        data: null,
+        checking: false,
+        busy: false,
+        progressMessage: "",
+        error: "",
+        cancel: null,
+    };
+}
+
+function updateInstallDialog(patch) {
+    state.installDialog = {
+        ...state.installDialog,
+        ...patch,
+    };
+    renderInstallDialog();
+}
+
+function appendPackageList(container, label, items) {
+    if (!items?.length)
+        return;
+
+    const section = document.createElement("div");
+    section.className = "security-package-list";
+    const heading = document.createElement("p");
+    heading.textContent = label;
+    const list = document.createElement("ul");
+    list.className = "package-list-ct";
+
+    items.forEach(item => {
+        const listItem = document.createElement("li");
+        listItem.textContent = item;
+        list.append(listItem);
+    });
+
+    section.append(heading, list);
+    container.append(section);
+}
+
+function renderInstallDialog() {
+    const dialog = getElement("security-install-dialog");
+    const title = getElement("security-install-title");
+    const alert = getElement("security-install-alert");
+    const body = getElement("security-install-body");
+    const footerMessage = getElement("security-install-footer-message");
+    const submit = getElement("security-install-submit");
+    const cancel = getElement("security-install-cancel");
+    const close = getElement("security-install-close");
+
+    if (!dialog || !title || !alert || !body || !footerMessage || !submit || !cancel || !close)
+        return;
+
+    const current = state.installDialog;
+    const tool = REQUIRED_TOOLS[current.toolId] || REQUIRED_TOOLS.ufw;
+    dialog.hidden = !current.open;
+    if (!current.open)
+        return;
+
+    title.textContent = "安装软件";
+    alert.hidden = !current.error;
+    alert.textContent = current.error;
+    alert.classList.toggle("tone-danger", Boolean(current.error));
+
+    body.replaceChildren();
+    const text = document.createElement("p");
+    const packageNames = (current.packageNames?.length ? current.packageNames : tool.packages).join(", ");
+    const packageName = document.createElement("strong");
+    packageName.textContent = packageNames;
+    text.append(packageName, " 将被安装。");
+    body.append(text);
+
+    appendPackageList(body, "附加软件包：", current.data?.extra_names || []);
+    appendPackageList(body, "将被移除：", current.data?.remove_names || []);
+
+    let footerText = current.progressMessage;
+    if (!footerText && current.data?.download_size)
+        footerText = `总大小：${cockpit.format_bytes(current.data.download_size)}`;
+
+    footerMessage.hidden = !footerText;
+    footerMessage.replaceChildren();
+    if (footerText) {
+        footerMessage.append(document.createTextNode(footerText));
+        if (current.checking || current.busy) {
+            const spinner = document.createElement("span");
+            spinner.className = "pf-v6-c-spinner pf-m-sm";
+            spinner.setAttribute("role", "progressbar");
+            spinner.setAttribute("aria-label", "加载中");
+            footerMessage.append(spinner);
+        }
+    }
+
+    submit.disabled = current.checking || current.busy || !current.data || Boolean(current.error && !current.data);
+    submit.textContent = current.busy ? "安装中..." : "安装";
+    cancel.disabled = false;
+    close.disabled = false;
+}
+
+async function resolveToolInstallPackages(manager, tool, progressCallback) {
+    const candidates = tool.packageCandidates?.length ? tool.packageCandidates : [tool.packages];
+    let lastResult = null;
+    const unavailableNames = new Set();
+
+    for (const packageNames of candidates) {
+        updateInstallDialog({ packageNames });
+        const data = await manager.check_missing_packages(packageNames, progressCallback);
+        lastResult = { packageNames, data };
+        if (!data.unavailable_names.length)
+            return lastResult;
+
+        data.unavailable_names.forEach(name => unavailableNames.add(name));
+    }
+
+    if (lastResult && unavailableNames.size > 0)
+        lastResult.data.unavailable_names = Array.from(unavailableNames);
+
+    return lastResult;
+}
+
+async function openInstallDialog(toolId) {
+    const tool = REQUIRED_TOOLS[toolId];
+    if (!tool)
+        return;
+
+    if (await checkToolInstalled(toolId, { force: true })) {
+        if (toolId === "fail2ban")
+            refreshFail2BanStatus();
+        else
+            refreshFirewallStatus();
+        return;
+    }
+
+    resetInstallDialog();
+    state.installDialog = {
+        open: true,
+        toolId,
+        packageNames: tool.packages,
+        data: null,
+        checking: true,
+        busy: false,
+        progressMessage: "正在检查已安装的软件",
+        error: "",
+        cancel: null,
+    };
+    renderInstallDialog();
+
+    try {
+        const manager = await getPackageManager();
+        const result = await resolveToolInstallPackages(manager, tool, progress => {
+            updateInstallDialog({
+                progressMessage: progress?.waiting ? "正在等待其他软件管理操作完成" : "正在检查已安装的软件",
+                cancel: progress?.cancel || null,
+            });
+        });
+        const data = result?.data || { unavailable_names: tool.packages };
+
+        updateInstallDialog({
+            packageNames: result?.packageNames || tool.packages,
+            data: data.unavailable_names.length ? null : data,
+            checking: false,
+            progressMessage: "",
+            cancel: null,
+            error: data.unavailable_names.length
+                ? `${data.unavailable_names[0]} 不在任何可用软件仓库中。`
+                : "",
+        });
+    } catch (error) {
+        if (formatError(error) === "cancelled") {
+            closeInstallDialog();
+            return;
+        }
+
+        updateInstallDialog({
+            checking: false,
+            progressMessage: "",
+            cancel: null,
+            error: formatInstallError(error) || "无法使用系统软件管理服务。",
+        });
+    }
+}
+
+function closeInstallDialog(options = {}) {
+    resetInstallDialog(options);
+    renderInstallDialog();
+}
+
+async function handleInstallDialogSubmit() {
+    const current = state.installDialog;
+    if (!current.open || current.checking || current.busy || !current.data)
+        return;
+
+    const toolId = current.toolId;
+    updateInstallDialog({
+        busy: true,
+        error: "",
+        progressMessage: "正在安装软件包",
+    });
+
+    try {
+        const manager = await getPackageManager();
+        await manager.install_missing_packages(current.data, progress => {
+            updateInstallDialog({
+                progressMessage: packageProgressMessage("正在安装软件包", progress),
+                cancel: progress?.cancel || null,
+            });
+        });
+    } catch (error) {
+        if (formatError(error) === "cancelled") {
+            closeInstallDialog();
+            return;
+        }
+
+        updateInstallDialog({
+            busy: false,
+            progressMessage: "",
+            cancel: null,
+            error: formatInstallError(error) || "安装软件包失败。",
+        });
+        return;
+    }
+
+    closeInstallDialog({ cancel: false });
+    await checkToolInstalled(toolId, { force: true });
+    if (toolId === "fail2ban")
+        await refreshFail2BanStatus();
+    else
+        await refreshFirewallStatus();
+    refreshSecurityLogs();
+}
+
 function summarizeOutput(text, ok = true) {
     const lines = String(text || "")
         .split(/\r?\n/)
@@ -663,6 +1676,7 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
 
     const normalizedRows = rows.map(row => Array.isArray(row) ? { cells: row } : row);
     const hasActions = normalizedRows.some(row => row.delete);
+    const table = body.closest("table");
     const headRow = document.createElement("tr");
     headRow.className = "pf-v6-c-table__tr";
     columns.forEach(column => {
@@ -682,10 +1696,18 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
 
     head.replaceChildren(headRow);
     body.replaceChildren();
+    table?.classList.toggle("ct-table-empty", !normalizedRows.length);
 
     if (!normalizedRows.length) {
-        empty.hidden = false;
-        empty.textContent = emptyText;
+        empty.hidden = true;
+        const row = document.createElement("tr");
+        row.className = "pf-v6-c-table__tr";
+        const cell = document.createElement("td");
+        cell.className = "pf-v6-c-table__td empty-message";
+        cell.colSpan = columns.length + (hasActions ? 1 : 0);
+        cell.textContent = emptyText;
+        row.append(cell);
+        body.append(row);
         return;
     }
 
@@ -866,32 +1888,122 @@ function getSecurityLogSource(id = state.securityLogSource) {
 }
 
 function renderSecurityLogSourceOptions() {
-    const select = document.getElementById("security-log-source");
-    if (!select)
+    const menuList = document.getElementById("security-log-menu-list");
+    const toggleText = document.getElementById("security-log-source-text");
+    if (!menuList || !toggleText)
         return;
 
-    select.replaceChildren();
+    const currentSource = getSecurityLogSource();
+    toggleText.textContent = currentSource.label;
+
+    menuList.replaceChildren();
     SECURITY_LOG_SOURCES.forEach(source => {
-        const option = document.createElement("option");
-        option.value = source.id;
-        option.textContent = source.label;
-        option.selected = source.id === state.securityLogSource;
-        select.append(option);
+        const item = document.createElement("li");
+        item.setAttribute("role", "menuitem");
+        item.className = "pf-v6-c-menu__item";
+        if (source.id === state.securityLogSource)
+            item.classList.add("pf-m-selected");
+        item.textContent = source.label;
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "pf-v6-c-menu__item";
+        if (source.id === state.securityLogSource)
+            button.classList.add("pf-m-selected");
+        button.textContent = source.label;
+        button.addEventListener("click", () => {
+            switchSecurityLogSource(source.id);
+            closeSecurityLogMenu();
+        });
+
+        const listItem = document.createElement("li");
+        listItem.setAttribute("role", "none");
+        listItem.append(button);
+        menuList.append(listItem);
     });
 }
 
+function toggleSecurityLogMenu() {
+    const menu = document.getElementById("security-log-menu");
+    if (!menu)
+        return;
+    menu.hidden = !menu.hidden;
+}
+
+function closeSecurityLogMenu() {
+    const menu = document.getElementById("security-log-menu");
+    if (menu)
+        menu.hidden = true;
+}
+
 function buildSecurityLogArgs(source = getSecurityLogSource()) {
-    const args = ["journalctl", "-q", "--no-pager", "-n", "10", "-o", "json"];
-    source.units.forEach((unit, index) => {
-        if (index > 0)
+    const args = ["journalctl", "-q", "--no-pager", "-n", String(SECURITY_LOG_FETCH_LIMIT), "-o", "json"];
+    let hasMatch = false;
+
+    source.units.forEach(unit => {
+        if (hasMatch)
             args.push("+");
         args.push(`_SYSTEMD_UNIT=${unit}`);
+        hasMatch = true;
     });
+
+    if (source.kernelScope) {
+        if (hasMatch)
+            args.push("+");
+        args.push("_TRANSPORT=kernel");
+    }
+
     return args;
 }
 
 function getSecurityLogUrl(source = getSecurityLogSource()) {
-    return `/system/logs/#/?prio=debug&_SYSTEMD_UNIT=${encodeURIComponent(source.units.join(","))}`;
+    const params = new URLSearchParams({ prio: "debug" });
+    if (source.units.length)
+        params.set("_SYSTEMD_UNIT", source.units.join(","));
+    if (source.kernelScope)
+        params.set("_TRANSPORT", "kernel");
+
+    return `/system/logs/#/?${params.toString()}`;
+}
+
+function getSecurityLogParentOptions(source = getSecurityLogSource()) {
+    const options = { prio: "debug" };
+    if (source.units.length)
+        options._SYSTEMD_UNIT = source.units.join(",");
+    if (source.kernelScope)
+        options._TRANSPORT = "kernel";
+    return options;
+}
+
+function isKernelJournalEntry(entry) {
+    return entry._TRANSPORT === "kernel" || entry.SYSLOG_IDENTIFIER === "kernel" || entry._COMM === "kernel";
+}
+
+function isUfwKernelMessage(message) {
+    return /\bUFW\b|\[UFW\s+/i.test(message);
+}
+
+function isFirewallKernelMessage(message) {
+    const normalized = normalizeWhitespace(message);
+    return isUfwKernelMessage(normalized) ||
+        /\b(?:IN|OUT|MAC|SRC|DST|LEN|TOS|PREC|TTL|ID|PROTO|SPT|DPT|WINDOW|RES|UID|GID)=/i.test(normalized) ||
+        /\b(?:iptables|ip6tables|nftables|netfilter)\b/i.test(normalized);
+}
+
+function entryMatchesSecurityLogSource(entry, source = getSecurityLogSource()) {
+    if (source.units.includes(entry._SYSTEMD_UNIT))
+        return true;
+
+    if (!source.kernelScope || !isKernelJournalEntry(entry))
+        return false;
+
+    const message = getJournalMessage(entry);
+    if (source.kernelScope === "ufw")
+        return isUfwKernelMessage(message);
+    if (source.kernelScope === "iptables")
+        return isFirewallKernelMessage(message) && !isUfwKernelMessage(message);
+
+    return isFirewallKernelMessage(message);
 }
 
 function formatJournalTimestamp(entry, options) {
@@ -929,16 +2041,16 @@ function openJournalEntry(entry) {
     if (!entry.__CURSOR)
         return;
 
-    const source = getSecurityLogSource();
-    const parentOptions = encodeURIComponent(JSON.stringify({
-        prio: "debug",
-        _SYSTEMD_UNIT: source.units.join(","),
-    }));
+    const parentOptions = encodeURIComponent(JSON.stringify(getSecurityLogParentOptions()));
     cockpit.jump(`system/logs#/${entry.__CURSOR}?parent_options=${parentOptions}`);
 }
 
+function getSecurityLogContainer() {
+    return document.getElementById("security-log-list");
+}
+
 function renderSecurityLogs(entries) {
-    const container = document.getElementById("security-log-list");
+    const container = getSecurityLogContainer();
     if (!container)
         return;
 
@@ -999,7 +2111,7 @@ function renderSecurityLogs(entries) {
 }
 
 function renderSecurityLogMessage(message) {
-    const container = document.getElementById("security-log-list");
+    const container = getSecurityLogContainer();
     if (!container)
         return;
 
@@ -1010,12 +2122,25 @@ function renderSecurityLogMessage(message) {
 }
 
 async function refreshSecurityLogs() {
-    return withRefreshLock("logs", async () => {
+    if (state.refreshLocks.logs) {
+        state.securityLogsRefreshPending = true;
+        renderSecurityLogMessage("正在加载安全日志...");
+        return state.refreshLocks.logs;
+    }
+
+    const task = withRefreshLock("logs", async () => {
         if (state.superuserAllowed !== true)
             return;
 
+        const sourceId = state.securityLogSource;
+        const source = getSecurityLogSource();
         renderSecurityLogMessage("正在加载安全日志...");
-        const result = await capture(buildSecurityLogArgs());
+        const result = await capture(buildSecurityLogArgs(source));
+        if (state.securityLogSource !== sourceId) {
+            state.securityLogsRefreshPending = true;
+            return;
+        }
+
         if (!result.ok) {
             renderSecurityLogMessage(summarizeOutput(result.output, false));
             return;
@@ -1032,9 +2157,18 @@ async function refreshSecurityLogs() {
                     return null;
                 }
             })
-            .filter(Boolean);
+            .filter(Boolean)
+            .filter(entry => entryMatchesSecurityLogSource(entry, source))
+            .slice(-SECURITY_LOG_DISPLAY_LIMIT);
 
         renderSecurityLogs(entries);
+    });
+
+    return task.finally(() => {
+        if (state.securityLogsRefreshPending && state.superuserAllowed === true) {
+            state.securityLogsRefreshPending = false;
+            return refreshSecurityLogs();
+        }
     });
 }
 
@@ -1042,6 +2176,18 @@ function switchSecurityLogSource(sourceId) {
     state.securityLogSource = sourceId;
     renderSecurityLogSourceOptions();
     refreshSecurityLogs();
+}
+
+function positionSecurityLogMenu() {
+    const toggle = document.getElementById("security-log-source-toggle");
+    const menu = document.getElementById("security-log-menu");
+    if (!toggle || !menu)
+        return;
+    const rect = toggle.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.top = (rect.bottom + 4) + "px";
+    menu.style.left = rect.left + "px";
+    menu.style.minWidth = rect.width + "px";
 }
 
 function normalizeStatus(value) {
@@ -1073,6 +2219,21 @@ function parseSystemdShow(output) {
         values[line.slice(0, index)] = line.slice(index + 1).trim();
     });
     return values;
+}
+
+async function resolveServiceUnit(candidates, fallback) {
+    for (const candidate of candidates) {
+        const result = await capture(["systemctl", "show", candidate, "--property=LoadState", "--value"], { updateResult: false });
+        if (result.ok && String(result.output || "").trim() !== "not-found")
+            return candidate;
+    }
+
+    return fallback;
+}
+
+async function resolveFail2BanService() {
+    state.fail2banService = await resolveServiceUnit(FAIL2BAN_SERVICE_CANDIDATES, "fail2ban.service");
+    return state.fail2banService;
 }
 
 function parseUfwStatus(numberedOutput, verboseOutput) {
@@ -1277,7 +2438,8 @@ function parseFail2BanJail(output, jailName) {
 }
 
 function renderFirewallStatus(parsed) {
-    setText("firewall-backend-label", state.firewallBackend.toUpperCase());
+    renderFirewallInstallState(false);
+    setText("firewall-backend-label", getCurrentFirewallTool().label);
     setText("firewall-summary-copy", parsed.summary);
     setText("firewall-policy-summary", parsed.policySummary);
     setBadge("firewall-status-pill", parsed.statusLabel, parsed.tone);
@@ -1290,6 +2452,7 @@ function renderFirewallStatus(parsed) {
 }
 
 function renderFirewallError(message) {
+    renderFirewallInstallState(false);
     setText("firewall-summary-copy", summarizeOutput(message, false));
     setText("firewall-policy-summary", "状态刷新失败。");
     setBadge("firewall-status-pill", "刷新失败", "danger");
@@ -1301,7 +2464,19 @@ function renderFirewallError(message) {
     renderFirewallRulesTable();
 }
 
+function renderFirewallMissing() {
+    const tool = getCurrentFirewallTool();
+    renderFirewallInstallState(true);
+    setText("firewall-backend-label", tool.label);
+    setText("firewall-policy-summary", `${tool.label} 未安装。`);
+    state.firewallRules.columns = ["状态"];
+    state.firewallRules.rows = [];
+    state.firewallRules.emptyText = `${tool.label} 未安装。`;
+    state.firewallRules.page = 1;
+}
+
 function renderFail2BanStatus(parsed) {
+    renderFail2BanInstallState(false);
     setText("fail2ban-service-state", parsed.serviceState);
     setText("fail2ban-service-copy", parsed.summary);
     setText("fail2ban-jail-count", String(parsed.jailCount));
@@ -1315,6 +2490,14 @@ function renderFail2BanStatus(parsed) {
             loadFail2BanJail(jail);
         },
     });
+}
+
+function renderFail2BanMissing() {
+    renderFail2BanInstallState(true);
+    setText("fail2ban-service-state", "未安装");
+    setText("fail2ban-service-copy", "Fail2Ban 未安装。");
+    setText("fail2ban-jail-count", "--");
+    clearFail2BanJail("Fail2Ban 未安装。");
 }
 
 function renderFail2BanJail(parsed, tone = "success") {
@@ -1368,13 +2551,21 @@ async function refreshFirewallStatus() {
         if (state.superuserAllowed !== true)
             return;
 
+        const installed = await checkToolInstalled(state.firewallBackend, { force: true });
+        if (!installed) {
+            renderFirewallMissing();
+            return;
+        }
+
+        renderFirewallInstallState(false);
         setText("firewall-summary-copy", "正在刷新防火墙状态...");
         setBadge("firewall-status-pill", "加载中", "loading");
 
         if (state.firewallBackend === "ufw") {
+            const ufwCommand = getToolCommand("ufw");
             const [verboseResult, numberedResult] = await Promise.all([
-                capture(["ufw", "status", "verbose"]),
-                capture(["ufw", "status", "numbered"]),
+                capture([ufwCommand, "status", "verbose"]),
+                capture([ufwCommand, "status", "numbered"]),
             ]);
 
             if (!verboseResult.ok && !numberedResult.ok) {
@@ -1386,7 +2577,7 @@ async function refreshFirewallStatus() {
             return;
         }
 
-        const listResult = await capture(["iptables", "-L", "INPUT", "-n", "--line-numbers", "-v"]);
+        const listResult = await capture([getToolCommand("iptables"), "-L", "INPUT", "-n", "--line-numbers", "-v"]);
 
         if (!listResult.ok) {
             renderFirewallError(listResult.output);
@@ -1402,17 +2593,25 @@ async function refreshFail2BanStatus() {
         if (state.superuserAllowed !== true)
             return;
 
+        const installed = await checkToolInstalled("fail2ban", { force: true });
+        if (!installed) {
+            renderFail2BanMissing();
+            return;
+        }
+
+        renderFail2BanInstallState(false);
         setText("fail2ban-service-copy", "正在刷新 Fail2Ban 状态...");
         setBadge("fail2ban-service-pill", "加载中", "loading");
 
+        const serviceName = await resolveFail2BanService();
         const [serviceResult, statusResult] = await Promise.all([
             capture([
                 "systemctl",
                 "show",
-                "fail2ban",
+                serviceName,
                 "--property=Id,Description,LoadState,ActiveState,SubState,UnitFileState,FragmentPath",
             ]),
-            capture(["fail2ban-client", "status"]),
+            capture([getToolCommand("fail2ban"), "status"]),
         ]);
 
         const parsed = parseFail2BanOverview(serviceResult.output, statusResult.output, serviceResult.ok, statusResult.ok);
@@ -1441,7 +2640,7 @@ async function loadFail2BanJail(jail, options = {}) {
     setText("fail2ban-current-jail", jailName);
     setText("fail2ban-current-jail-copy", "正在加载 jail 详情...");
 
-    const result = await capture(["fail2ban-client", "status", jailName]);
+    const result = await capture([getToolCommand("fail2ban"), "status", jailName]);
     if (!result.ok) {
         const summary = summarizeOutput(result.output, false);
         setText("fail2ban-current-jail", jailName);
@@ -1473,6 +2672,12 @@ function switchFirewallBackend(backend, options = {}) {
     });
 
     updateFirewallActionBar();
+    // Only reveal/hide the settings vs install state once detection has actually run.
+    // While still null (not yet checked) keep both hidden so we never flash the
+    // operations UI for a tool that may turn out to be missing.
+    if (state.toolInstalled[backend] !== null)
+        renderFirewallInstallState(state.toolInstalled[backend] === false);
+    setText("firewall-backend-label", getCurrentFirewallTool().label);
     if (state.firewallDialog.open)
         closeFirewallDialog();
     if (options.refresh !== false)
@@ -1609,6 +2814,9 @@ function openFirewallRuleDialog() {
         form.reset();
 
     setFirewallRuleActionOptions();
+    const portInput = getElement("firewall-rule-port");
+    if (portInput)
+        portInput.removeAttribute("aria-invalid");
     updateFirewallDialog({
         open: true,
         mode: "add-rule",
@@ -1622,13 +2830,25 @@ function closeFirewallDialog() {
     renderFirewallDialog();
 }
 
+function confirmDestructiveAction(message) {
+    return new Promise(resolve => {
+        const confirmed = window.confirm(message);
+        resolve(confirmed);
+    });
+}
+
 async function deleteFirewallRule(rule) {
     if (!rule)
         return;
 
+    const label = rule.kind === "ufw" ? "UFW 规则" : "iptables 规则";
+    const confirmed = await confirmDestructiveAction(`确定要删除 ${label} #${rule.value} 吗？此操作不可撤销。`);
+    if (!confirmed)
+        return;
+
     const result = rule.kind === "ufw"
-        ? await execute("firewall", "UFW 删除规则", ["ufw", "--force", "delete", rule.value])
-        : await execute("firewall", "iptables 删除规则", ["iptables", "-D", "INPUT", rule.value]);
+        ? await execute("firewall", "UFW 删除规则", [getToolCommand("ufw"), "--force", "delete", rule.value])
+        : await execute("firewall", "iptables 删除规则", [getToolCommand("iptables"), "-D", "INPUT", rule.value]);
 
     if (result.ok)
         await refreshFirewallStatus();
@@ -1640,7 +2860,7 @@ async function handleFirewallDialogSubmit() {
 
     if (state.firewallDialog.mode === "enable-ufw") {
         updateFirewallDialog({ busy: true, error: "" });
-        const result = await execute("firewall", "UFW 启用", ["ufw", "--force", "enable"]);
+        const result = await execute("firewall", "UFW 启用", [getToolCommand("ufw"), "--force", "enable"]);
         if (!result.ok) {
             updateFirewallDialog({
                 busy: false,
@@ -1665,15 +2885,21 @@ async function handleFirewallDialogSubmit() {
 
     if (!port) {
         updateFirewallDialog({ error: "端口不能为空。" });
+        const portInput = getElement("firewall-rule-port");
+        if (portInput)
+            portInput.setAttribute("aria-invalid", "true");
         return;
     }
+    const portInput = getElement("firewall-rule-port");
+    if (portInput)
+        portInput.removeAttribute("aria-invalid");
 
     const args = state.firewallBackend === "ufw"
         ? source
-            ? ["ufw", action, "from", source, "to", "any", "port", port, "proto", protocol]
-            : ["ufw", action, `${port}/${protocol}`]
+            ? [getToolCommand("ufw"), action, "from", source, "to", "any", "port", port, "proto", protocol]
+            : [getToolCommand("ufw"), action, `${port}/${protocol}`]
         : (() => {
-            const command = ["iptables", "-I", "INPUT", "-p", protocol];
+            const command = [getToolCommand("iptables"), "-I", "INPUT", "-p", protocol];
             if (source)
                 command.push("-s", source);
             command.push("--dport", port, "-j", action);
@@ -1697,13 +2923,14 @@ async function handleFirewallDialogSubmit() {
 }
 
 async function handleQuickAction(action) {
+    const fail2banService = state.fail2banService || "fail2ban.service";
     const actions = {
-        "ufw-disable": () => execute("firewall", "UFW 禁用", ["ufw", "disable"]),
-        "ufw-reload": () => execute("firewall", "UFW 重新加载", ["ufw", "reload"]),
-        "fail2ban-start": () => execute("fail2ban", "启动 Fail2Ban", ["systemctl", "start", "fail2ban"]),
-        "fail2ban-stop": () => execute("fail2ban", "停止 Fail2Ban", ["systemctl", "stop", "fail2ban"]),
-        "fail2ban-restart": () => execute("fail2ban", "重启 Fail2Ban", ["systemctl", "restart", "fail2ban"]),
-        "fail2ban-reload": () => execute("fail2ban", "重新加载 Fail2Ban", ["fail2ban-client", "reload"]),
+        "ufw-disable": () => execute("firewall", "UFW 禁用", [getToolCommand("ufw"), "disable"]),
+        "ufw-reload": () => execute("firewall", "UFW 重新加载", [getToolCommand("ufw"), "reload"]),
+        "fail2ban-start": () => execute("fail2ban", "启动 Fail2Ban", ["systemctl", "start", fail2banService]),
+        "fail2ban-stop": () => execute("fail2ban", "停止 Fail2Ban", ["systemctl", "stop", fail2banService]),
+        "fail2ban-restart": () => execute("fail2ban", "重启 Fail2Ban", ["systemctl", "restart", fail2banService]),
+        "fail2ban-reload": () => execute("fail2ban", "重新加载 Fail2Ban", [getToolCommand("fail2ban"), "reload"]),
     };
 
     const handler = actions[action];
@@ -1738,7 +2965,7 @@ async function handleFail2BanUnban(event) {
     }
 
     fillJailInputs(jail);
-    await execute("fail2ban", "Fail2Ban 解封 IP", ["fail2ban-client", "set", jail, "unbanip", ip]);
+    await execute("fail2ban", "Fail2Ban 解封 IP", [getToolCommand("fail2ban"), "set", jail, "unbanip", ip]);
     form.reset();
     fillJailInputs(jail);
     await refreshFail2BanStatus();
@@ -1754,11 +2981,16 @@ function bindEvents() {
         button.addEventListener("click", () => handleQuickAction(button.dataset.action));
     });
 
+    document.querySelectorAll("[data-install-tool]").forEach(button => {
+        button.addEventListener("click", () => openInstallDialog(button.dataset.installTool));
+    });
+
     document.getElementById("security-access-action")?.addEventListener("click", requestSuperuserAccess);
     document.getElementById("security-auth-form")?.addEventListener("submit", handleSuperuserDialogSubmit);
     document.getElementById("security-auth-form")?.addEventListener("input", handleSuperuserDialogInput);
     document.getElementById("security-auth-form")?.addEventListener("change", handleSuperuserDialogInput);
     document.getElementById("security-auth-cancel")?.addEventListener("click", () => closeSuperuserDialog());
+    document.getElementById("security-auth-close")?.addEventListener("click", () => closeSuperuserDialog());
     document.getElementById("firewall-enable-button")?.addEventListener("click", openFirewallEnableDialog);
     document.getElementById("firewall-add-button")?.addEventListener("click", openFirewallRuleDialog);
     document.getElementById("firewall-modal-submit")?.addEventListener("click", handleFirewallDialogSubmit);
@@ -1771,6 +3003,13 @@ function bindEvents() {
     document.getElementById("firewall-modal")?.addEventListener("click", event => {
         if (event.target?.id === "firewall-modal")
             closeFirewallDialog();
+    });
+    document.getElementById("security-install-submit")?.addEventListener("click", handleInstallDialogSubmit);
+    document.getElementById("security-install-cancel")?.addEventListener("click", closeInstallDialog);
+    document.getElementById("security-install-close")?.addEventListener("click", closeInstallDialog);
+    document.getElementById("security-install-dialog")?.addEventListener("click", event => {
+        if (event.target?.id === "security-install-dialog")
+            closeInstallDialog();
     });
     document.getElementById("security-auth-dialog")?.addEventListener("click", event => {
         if (event.target?.id === "security-auth-dialog")
@@ -1798,8 +3037,15 @@ function bindEvents() {
         event.preventDefault();
         jumpToFirewallRulesPage(event.target.value);
     });
-    document.getElementById("security-log-source")?.addEventListener("change", event => {
-        switchSecurityLogSource(event.target.value);
+    document.getElementById("security-log-source-toggle")?.addEventListener("click", () => {
+        positionSecurityLogMenu();
+        toggleSecurityLogMenu();
+    });
+    document.addEventListener("click", event => {
+        const menu = document.getElementById("security-log-menu");
+        const toggle = document.getElementById("security-log-source-toggle");
+        if (menu && !menu.hidden && toggle && !toggle.contains(event.target) && !menu.contains(event.target))
+            closeSecurityLogMenu();
     });
     document.getElementById("security-log-refresh")?.addEventListener("click", refreshSecurityLogs);
     document.getElementById("security-log-view-all")?.addEventListener("click", () => {
@@ -1826,6 +3072,11 @@ function bindEvents() {
             return;
         }
 
+        if (event.key === "Escape" && state.installDialog.open) {
+            closeInstallDialog();
+            return;
+        }
+
         if (event.key === "Escape" && state.superuserDialog.open)
             closeSuperuserDialog();
     });
@@ -1839,6 +3090,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     clearFail2BanJail("可从 jail 列表快速打开，也可以手动输入名称查看。");
     switchFirewallBackend(state.firewallBackend, { refresh: false });
     renderFirewallDialog();
+    renderInstallDialog();
     renderSuperuserDialog();
     renderAccessState();
 });
