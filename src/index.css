@@ -692,6 +692,35 @@ h4:not([class*="pf-"]):not([data-pf-content="true"]) {
     border-inline-start-color: var(--pf-t--global--border--color--status--danger--default);
 }
 
+.readonly-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--pf-t--global--spacer--md);
+}
+
+.readonly-banner__content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-inline-size: 0;
+}
+
+.readonly-banner__title {
+    font-weight: var(--pf-t--global--font--weight--body--bold, 700);
+}
+
+.data-table__hint {
+    color: var(--pf-t--global--text--color--subtle);
+    font-size: var(--pf-t--global--font--size--sm);
+}
+
+#firewall-persist-callout:not([hidden]),
+#firewall-result-summary:not([hidden]) {
+    margin-block-end: var(--pf-t--global--spacer--sm);
+}
+
 .auth-dialog-backdrop {
     position: fixed;
     inset: 0;

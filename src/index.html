@@ -24,9 +24,6 @@
                             <h1 class="pf-v6-c-title pf-m-2xl" id="security-access-title">正在加载...</h1>
                         </div>
                         <div class="pf-v6-c-empty-state__body" id="security-access-copy">正在检查当前会话的管理员访问权限。</div>
-                        <div class="pf-v6-c-empty-state__footer">
-                            <button class="pf-v6-c-button pf-m-primary" id="security-access-action" type="button" hidden>开启管理员访问</button>
-                        </div>
                     </div>
                 </div>
             </section>
@@ -34,24 +31,23 @@
 
         <div class="page-content pf-v6-c-page__main-container" hidden>
             <main class="pf-v6-c-page__main" tabindex="-1">
+                <section class="pf-v6-c-page__main-section security-panel" id="security-readonly-panel" hidden>
+                    <div class="inline-alert readonly-banner" role="status">
+                        <div class="readonly-banner__content">
+                            <strong class="readonly-banner__title">只读模式</strong>
+                            <span id="security-readonly-copy">当前会话没有管理员权限，只能查看状态。</span>
+                        </div>
+                        <button class="pf-v6-c-button pf-m-secondary" id="security-readonly-action" type="button">开启管理员访问</button>
+                    </div>
+                </section>
+
                 <section class="pf-v6-c-page__main-section security-panel" id="panel-firewall">
                     <div class="security-section-bar">
                         <h2 class="security-section-bar__title">防火墙</h2>
                         <div class="security-section-bar__actions">
                             <span class="pf-v6-c-label status-pill" id="firewall-status-pill">加载中</span>
-                            <div class="firewall-backend-toggle" id="firewall-backend-toggle">
-                                <div class="pf-v6-c-toggle-group" role="group" aria-label="防火墙后端">
-                                    <div class="pf-v6-c-toggle-group__item">
-                                        <button type="button" class="pf-v6-c-toggle-group__button backend-button pf-m-selected" data-backend="ufw" aria-pressed="true">
-                                            <span class="pf-v6-c-toggle-group__text">UFW</span>
-                                        </button>
-                                    </div>
-                                    <div class="pf-v6-c-toggle-group__item">
-                                        <button type="button" class="pf-v6-c-toggle-group__button backend-button" data-backend="iptables" aria-pressed="false">
-                                            <span class="pf-v6-c-toggle-group__text">iptables</span>
-                                        </button>
-                                    </div>
-                                </div>
+                            <div class="firewall-backend-toggle" id="firewall-backend-toggle" hidden>
+                                <div class="pf-v6-c-toggle-group" role="group" aria-label="防火墙后端"></div>
                             </div>
                         </div>
                     </div>
@@ -66,7 +62,7 @@
                             </div>
                             <div class="pf-v6-c-empty-state__body" id="firewall-install-copy">需要安装 UFW 才能管理该防火墙后端。</div>
                             <div class="pf-v6-c-empty-state__footer">
-                                <button class="pf-v6-c-button pf-m-primary" id="firewall-install-action" type="button" data-install-tool="ufw">安装 UFW</button>
+                                <button class="pf-v6-c-button pf-m-primary" id="firewall-install-action" type="button" data-install-tool="ufw" data-requires-admin>安装 UFW</button>
                             </div>
                         </div>
                     </div>
@@ -99,13 +95,15 @@
                                 </div>
                                 <div class="pf-v6-c-card__actions pf-m-no-offset pf-v6-l-flex pf-m-align-items-center pf-m-justify-content-flex-end pf-m-gap-sm">
                                     <span class="pf-v6-c-label status-pill" id="firewall-command-label">等待操作</span>
-                                    <button class="pf-v6-c-button pf-m-secondary" id="firewall-enable-button" type="button">启用</button>
-                                    <button class="pf-v6-c-button pf-m-secondary" id="firewall-disable-button" type="button" data-action="ufw-disable">禁用</button>
-                                    <button class="pf-v6-c-button pf-m-secondary" id="firewall-reload-button" type="button" data-action="ufw-reload">重新加载</button>
-                                    <button class="pf-v6-c-button pf-m-primary" id="firewall-add-button" type="button">添加规则</button>
+                                    <button class="pf-v6-c-button pf-m-secondary" id="firewall-enable-button" type="button" data-action="enable" data-requires-admin>启用</button>
+                                    <button class="pf-v6-c-button pf-m-secondary" id="firewall-disable-button" type="button" data-action="disable" data-requires-admin>禁用</button>
+                                    <button class="pf-v6-c-button pf-m-secondary" id="firewall-reload-button" type="button" data-action="reload" data-requires-admin>重新加载</button>
+                                    <button class="pf-v6-c-button pf-m-secondary" id="firewall-persist-button" type="button" data-action="persist" data-requires-admin hidden>保存规则</button>
+                                    <button class="pf-v6-c-button pf-m-primary" id="firewall-add-button" type="button" data-requires-admin>添加规则</button>
                                 </div>
                             </div>
                             <div class="pf-v6-c-card__body contains-list">
+                                <div class="result-callout" id="firewall-persist-callout" hidden></div>
                                 <div class="result-callout" id="firewall-result-summary" hidden></div>
 
                                 <div class="table-wrap">
@@ -153,7 +151,7 @@
                             </div>
                             <div class="pf-v6-c-empty-state__body">需要安装 Fail2Ban 才能查看 jail 状态和管理封禁 IP。</div>
                             <div class="pf-v6-c-empty-state__footer">
-                                <button class="pf-v6-c-button pf-m-primary" type="button" data-install-tool="fail2ban">安装 Fail2Ban</button>
+                                <button class="pf-v6-c-button pf-m-primary" type="button" data-install-tool="fail2ban" data-requires-admin>安装 Fail2Ban</button>
                             </div>
                         </div>
                     </div>
@@ -217,10 +215,10 @@
                                 </div>
                                 <div class="pf-v6-l-flex pf-m-align-items-center pf-m-justify-content-flex-end pf-m-gap-sm">
                                     <span class="pf-v6-c-label status-pill" id="fail2ban-command-label">等待操作</span>
-                                    <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-start" type="button">启动服务</button>
-                                    <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-stop" type="button">停止服务</button>
-                                    <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-restart" type="button">重启服务</button>
-                                    <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-reload" type="button">重新加载配置</button>
+                                    <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-start" type="button" data-requires-admin>启动服务</button>
+                                    <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-stop" type="button" data-requires-admin>停止服务</button>
+                                    <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-restart" type="button" data-requires-admin>重启服务</button>
+                                    <button class="pf-v6-c-button pf-m-secondary" data-action="fail2ban-reload" type="button" data-requires-admin>重新加载配置</button>
                                 </div>
                             </div>
                             <div class="pf-v6-c-card__body">
@@ -241,7 +239,7 @@
                                         </div>
                                     </form>
 
-                                    <form class="pf-v6-c-form operation-form" id="fail2ban-unban-form">
+                                    <form class="pf-v6-c-form operation-form" id="fail2ban-unban-form" data-requires-admin>
                                         <div class="pf-v6-c-form__group">
                                             <div class="pf-v6-c-form__group-label">
                                                 <label class="pf-v6-c-form__label" for="fail2ban-unban-jail-input">
@@ -326,7 +324,18 @@
                     <p class="security-muted" id="firewall-modal-copy" hidden></p>
 
                     <form novalidate id="firewall-rule-form" class="pf-v6-c-form pf-m-horizontal" hidden>
-                        <div class="pf-v6-c-form__group">
+                        <div class="pf-v6-c-form__group" id="firewall-rule-chain-group" hidden>
+                            <div class="pf-v6-c-form__group-label">
+                                <label class="pf-v6-c-form__label" for="firewall-rule-chain">
+                                    <span class="pf-v6-c-form__label-text">链</span>
+                                </label>
+                            </div>
+                            <div class="pf-v6-c-form__group-control">
+                                <select class="pf-v6-c-form-control" id="firewall-rule-chain" name="chain"></select>
+                            </div>
+                        </div>
+
+                        <div class="pf-v6-c-form__group" id="firewall-rule-action-group">
                             <div class="pf-v6-c-form__group-label">
                                 <label class="pf-v6-c-form__label" for="firewall-rule-action">
                                     <span class="pf-v6-c-form__label-text">动作</span>
@@ -337,7 +346,7 @@
                             </div>
                         </div>
 
-                        <div class="pf-v6-c-form__group">
+                        <div class="pf-v6-c-form__group" id="firewall-rule-port-group">
                             <div class="pf-v6-c-form__group-label">
                                 <label class="pf-v6-c-form__label" for="firewall-rule-port">
                                     <span class="pf-v6-c-form__label-text">端口</span>
@@ -348,7 +357,7 @@
                             </div>
                         </div>
 
-                        <div class="pf-v6-c-form__group">
+                        <div class="pf-v6-c-form__group" id="firewall-rule-protocol-group">
                             <div class="pf-v6-c-form__group-label">
                                 <label class="pf-v6-c-form__label" for="firewall-rule-protocol">
                                     <span class="pf-v6-c-form__label-text">协议</span>
@@ -362,7 +371,7 @@
                             </div>
                         </div>
 
-                        <div class="pf-v6-c-form__group">
+                        <div class="pf-v6-c-form__group" id="firewall-rule-source-group">
                             <div class="pf-v6-c-form__group-label">
                                 <label class="pf-v6-c-form__label" for="firewall-rule-source">
                                     <span class="pf-v6-c-form__label-text">来源 IP/CIDR</span>
