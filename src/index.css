@@ -162,38 +162,42 @@ h4:not([class*="pf-"]):not([data-pf-content="true"]) {
     color: var(--pf-t--global--text--color--subtle);
 }
 
-.status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--pf-t--global--spacer--xs);
-    min-height: 1.75rem;
-    max-width: 100%;
+/* Cockpit shows status as plain text beside the heading, not as a Label pill. */
+.security-status-text {
+    color: var(--pf-t--global--text--color--subtle);
+    font-size: var(--pf-t--global--font--size--sm);
+    white-space: nowrap;
 }
 
-.status-pill.tone-loading::before {
+.security-status-text:empty {
+    display: none;
+}
+
+.security-status-text.tone-warning {
+    color: var(--pf-t--global--text--color--status--warning--default);
+}
+
+.security-status-text.tone-danger {
+    color: var(--pf-t--global--text--color--status--danger--default);
+}
+
+.security-status-text.tone-loading::before {
     content: "";
+    display: inline-block;
     box-sizing: border-box;
-    width: 0.875rem;
-    height: 0.875rem;
-    border-width: 2px;
-    border-style: solid;
-    border-color:
-        var(--pf-t--global--icon--color--brand--default)
-        transparent
-        var(--pf-t--global--icon--color--brand--default)
-        var(--pf-t--global--icon--color--brand--default);
+    width: 0.75rem;
+    height: 0.75rem;
+    margin-inline-end: var(--pf-t--global--spacer--xs);
+    border: 2px solid var(--pf-t--global--icon--color--brand--default);
+    border-inline-end-color: transparent;
     border-radius: 50%;
     animation: security-spin 0.85s linear infinite;
+    vertical-align: -1px;
 }
 
+/* Plain cards follow Cockpit's override: no extra radius, just no shadow. */
 .security-card {
     box-shadow: none;
-    border-radius: var(--pf-t--global--border--radius--medium) !important;
-}
-
-/* Summary items inside cards should not have their own border-radius */
-.pf-v6-c-card.security-card .summary-item {
-    border-radius: 0;
 }
 
 .security-panel > .security-card {
@@ -399,11 +403,6 @@ h4:not([class*="pf-"]):not([data-pf-content="true"]) {
     color: var(--pf-t--global--text--color--status--danger--hover);
 }
 
-.empty-state {
-    padding: var(--pf-t--global--spacer--md);
-    color: var(--pf-t--global--text--color--subtle);
-}
-
 .table-pagination {
     align-items: center;
     justify-content: space-between;
@@ -423,27 +422,23 @@ h4:not([class*="pf-"]):not([data-pf-content="true"]) {
     text-align: center;
 }
 
-.result-callout {
-    padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
-    border: 1px solid var(--security-border);
-    border-inline-start-width: 3px;
-    border-radius: var(--pf-t--global--border--radius--medium);
-    background: var(--security-surface-muted);
-    color: var(--pf-t--global--text--color--regular);
+/* Slots hold a standard PF Alert; they only own the surrounding rhythm. */
+.security-alert-slot:not([hidden]) {
+    margin-block-end: var(--pf-t--global--spacer--md);
+}
+
+.security-alert-slot .pf-v6-c-alert {
+    margin-block: 0;
     white-space: pre-wrap;
     word-break: break-word;
 }
 
-.result-callout.tone-success {
-    border-inline-start-color: var(--pf-t--global--border--color--status--success--default);
+.data-table__empty-cell {
+    text-align: center;
 }
 
-.result-callout.tone-warning {
-    border-inline-start-color: var(--pf-t--global--border--color--status--warning--default);
-}
-
-.result-callout.tone-danger {
-    border-inline-start-color: var(--pf-t--global--border--color--status--danger--default);
+.data-table__empty-cell .pf-v6-c-empty-state {
+    padding-block: var(--pf-t--global--spacer--lg);
 }
 
 .operation-grid {
@@ -475,7 +470,7 @@ h4:not([class*="pf-"]):not([data-pf-content="true"]) {
 }
 
 .security-logs-card {
-    border-radius: var(--pf-t--global--border--radius--medium) !important;
+    box-shadow: none;
 }
 
 .security-logs-card .pf-v6-c-card__body {
@@ -678,39 +673,6 @@ h4:not([class*="pf-"]):not([data-pf-content="true"]) {
     display: none;
 }
 
-.inline-alert {
-    padding: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--md);
-    border: 1px solid var(--security-border);
-    border-inline-start-width: 3px;
-    border-inline-start-color: var(--pf-t--global--border--color--status--warning--default);
-    border-radius: var(--pf-t--global--border--radius--medium);
-    background: var(--security-surface-muted);
-    color: var(--pf-t--global--text--color--regular);
-}
-
-.inline-alert.tone-danger {
-    border-inline-start-color: var(--pf-t--global--border--color--status--danger--default);
-}
-
-.readonly-banner {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--pf-t--global--spacer--md);
-}
-
-.readonly-banner__content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    min-inline-size: 0;
-}
-
-.readonly-banner__title {
-    font-weight: var(--pf-t--global--font--weight--body--bold, 700);
-}
-
 .data-table__hint {
     color: var(--pf-t--global--text--color--subtle);
     font-size: var(--pf-t--global--font--size--sm);
@@ -734,7 +696,8 @@ h4:not([class*="pf-"]):not([data-pf-content="true"]) {
 
 .security-action-modal,
 .security-install-modal,
-.auth-dialog {
+.auth-dialog,
+.security-confirm-modal {
     width: min(100%, 40rem);
 }
 

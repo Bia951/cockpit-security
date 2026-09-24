@@ -57,6 +57,14 @@ const state = {
         error: "",
         cancel: null,
     },
+    confirmDialog: {
+        open: false,
+        title: "",
+        message: "",
+        confirmLabel: "确认",
+        variant: "danger",
+        resolve: null,
+    },
     superuserAllowed: null,
     superuserError: "",
     superuserProxy: null,
@@ -321,9 +329,9 @@ function renderSuperuserDialog() {
 
     title.textContent = "切换到管理员访问";
 
-    alert.hidden = !current.error;
-    alert.textContent = current.error;
-    alert.classList.toggle("tone-danger", current.errorTone === "danger");
+    setAlert("security-auth-alert", current.error
+        ? { title: current.error, variant: current.errorTone === "danger" ? "danger" : "warning" }
+        : {});
 
     methodField.hidden = current.methods.length <= 1 || Boolean(current.prompt);
     methodSelect.replaceChildren();
@@ -533,10 +541,25 @@ async function requestSuperuserAccess() {
         renderSuperuserDialog();
 }
 
+const ADMIN_REQUIRED_HINT = "需要管理员访问权限。";
+
 function updateWritableElements() {
     const writable = isWritable();
     document.querySelectorAll("[data-requires-admin]").forEach(element => {
-        element.hidden = !writable;
+        // Cockpit keeps privileged controls visible but disabled, with a tooltip
+        // explaining why, instead of hiding them.
+        if (element.tagName === "FORM") {
+            element.querySelectorAll("button, input, select").forEach(control => {
+                control.disabled = !writable;
+            });
+            return;
+        }
+
+        element.disabled = !writable;
+        if (writable)
+            element.removeAttribute("title");
+        else
+            element.title = ADMIN_REQUIRED_HINT;
     });
     updateFirewallActionBar();
 }
@@ -1358,37 +1381,83 @@ function setText(id, text) {
         element.textContent = text;
 }
 
-function setBadge(id, text, tone = "neutral") {
+// Status is plain text next to the section title, not a Label pill; Cockpit
+// reserves labels for counts and tags, not for "running/loading".
+function setStatusText(id, text, tone = "neutral") {
     const element = document.getElementById(id);
     if (!element)
         return;
 
-    element.textContent = text;
-    element.classList.remove("tone-success", "tone-warning", "tone-danger", "tone-loading", "pf-m-green", "pf-m-orange", "pf-m-red");
-    if (tone === "success")
-        element.classList.add("pf-m-green");
-    else if (tone === "warning")
-        element.classList.add("pf-m-orange");
-    else if (tone === "danger")
-        element.classList.add("pf-m-red");
-    if (tone === "loading")
-        element.classList.add("tone-loading");
+    element.textContent = text || "";
+    element.classList.remove("tone-success", "tone-warning", "tone-danger", "tone-loading");
+    if (["success", "warning", "danger", "loading"].includes(tone))
+        element.classList.add(`tone-${tone}`);
 }
 
-function setCallout(id, text, tone = "neutral") {
-    const element = document.getElementById(id);
-    if (!element)
+const ALERT_ICONS = {
+    success: '<path d="M504 256c0 136.967-111.033 248-248 248S8 392.967 8 256 119.033 8 256 8s248 111.033 248 248zM227.314 387.314l184-184c6.248-6.248 6.248-16.379 0-22.627l-22.627-22.627c-6.248-6.249-16.379-6.249-22.628 0L216 308.118l-70.059-70.059c-6.248-6.248-16.379-6.248-22.628 0l-22.627 22.627c-6.248 6.248-6.248 16.379 0 22.627l104 104c6.249 6.249 16.379 6.249 22.628.001z"/>',
+    warning: '<path d="M569.517 440.013C587.975 472.007 564.806 512 527.94 512H48.054c-36.937 0-59.999-40.055-41.577-71.987L246.423 23.985c18.467-32.009 64.72-31.951 83.154 0l239.94 416.028zM288 354c-25.405 0-46 20.595-46 46s20.595 46 46 46 46-20.595 46-46-20.595-46-46-46zm-43.673-165.346l7.418 136c.347 6.364 5.609 11.346 11.982 11.346h48.546c6.373 0 11.635-4.982 11.982-11.346l7.418-136c.375-6.874-5.098-12.654-11.982-12.654h-63.383c-6.884 0-12.356 5.78-11.981 12.654z"/>',
+    danger: '<path d="M504 256c0 136.997-111.043 248-248 248S8 392.997 8 256C8 119.083 119.043 8 256 8s248 111.083 248 248zm-248 50c-25.405 0-46 20.595-46 46s20.595 46 46 46 46-20.595 46-46-20.595-46-46-46zm-43.673-165.346l7.418 136c.347 6.364 5.609 11.346 11.982 11.346h48.546c6.373 0 11.635-4.982 11.982-11.346l7.418-136c.375-6.874-5.098-12.654-11.982-12.654h-63.383c-6.884 0-12.356 5.78-11.981 12.654z"/>',
+    info: '<path d="M256 8C119.043 8 8 119.083 8 256c0 136.997 111.043 248 248 248s248-111.003 248-248C504 119.083 392.957 8 256 8zm0 110c23.196 0 42 18.804 42 42s-18.804 42-42 42-42-18.804-42-42 18.804-42 42-42zm56 254c0 6.627-5.373 12-12 12h-88c-6.627 0-12-5.373-12-12v-24c0-6.627 5.373-12 12-12h12v-64h-12c-6.627 0-12-5.373-12-12v-24c0-6.627 5.373-12 12-12h64c6.627 0 12 5.373 12 12v100h12c6.627 0 12-5.373 12 12v24z"/>',
+};
+
+const ALERT_VARIANT_LABEL = { success: "成功提示：", warning: "警告：", danger: "错误：", info: "提示：" };
+
+// Standard PF inline Alert, matching cockpit-components-inline-notification:
+// one line title, optional detail behind a "show more" link.
+function setAlert(id, { title = "", detail = "", variant = "info", inline = true } = {}) {
+    const slot = document.getElementById(id);
+    if (!slot)
         return;
 
-    element.textContent = text;
-    element.hidden = !text;
-    element.classList.remove("tone-success", "tone-warning", "tone-danger");
-    if (tone === "success")
-        element.classList.add("tone-success");
-    else if (tone === "warning")
-        element.classList.add("tone-warning");
-    else if (tone === "danger")
-        element.classList.add("tone-danger");
+    slot.replaceChildren();
+    if (!title && !detail) {
+        slot.hidden = true;
+        return;
+    }
+
+    slot.hidden = false;
+    const alert = document.createElement("div");
+    alert.className = `pf-v6-c-alert${inline ? " pf-m-inline" : ""} pf-m-${variant}`;
+
+    const icon = document.createElement("div");
+    icon.className = "pf-v6-c-alert__icon";
+    icon.innerHTML = `<svg class="pf-v6-svg" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true" width="1em" height="1em">${ALERT_ICONS[variant] || ALERT_ICONS.info}</svg>`;
+    alert.append(icon);
+
+    const heading = document.createElement("h4");
+    heading.className = "pf-v6-c-alert__title";
+    const sr = document.createElement("span");
+    sr.className = "pf-v6-screen-reader";
+    sr.textContent = ALERT_VARIANT_LABEL[variant] || "";
+    heading.append(sr, document.createTextNode(title || detail));
+    alert.append(heading);
+
+    if (title && detail) {
+        const description = document.createElement("div");
+        description.className = "pf-v6-c-alert__description";
+        const paragraph = document.createElement("p");
+        paragraph.textContent = detail;
+        paragraph.hidden = true;
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "pf-v6-c-button pf-m-link pf-m-inline alert-link";
+        toggle.textContent = "显示详情";
+        toggle.addEventListener("click", () => {
+            paragraph.hidden = !paragraph.hidden;
+            toggle.textContent = paragraph.hidden ? "显示详情" : "收起详情";
+        });
+        description.append(paragraph);
+        heading.append(" ", toggle);
+        alert.append(description);
+    } else if (detail) {
+        const description = document.createElement("div");
+        description.className = "pf-v6-c-alert__description";
+        description.textContent = detail;
+        alert.append(description);
+    }
+
+    slot.append(alert);
 }
 
 function getCurrentFirewallTool() {
@@ -1411,7 +1480,7 @@ function renderFirewallInstallState(missing) {
     if (!missing)
         return;
 
-    setBadge("firewall-status-pill", "未安装", isWritable() ? "warning" : "neutral");
+    setStatusText("firewall-status-pill", "未安装", isWritable() ? "warning" : "neutral");
     if (title)
         title.textContent = tool.installTitle;
     if (copy)
@@ -1438,7 +1507,7 @@ function renderFail2BanInstallState(missing) {
             : "需要安装 Fail2Ban 才能查看 jail 状态和管理封禁 IP。安装软件需要管理员权限。";
 
     if (missing)
-        setBadge("fail2ban-service-pill", "未安装", isWritable() ? "warning" : "neutral");
+        setStatusText("fail2ban-service-pill", "未安装", isWritable() ? "warning" : "neutral");
 }
 
 function resetInstallDialog(options = {}) {
@@ -1507,9 +1576,7 @@ function renderInstallDialog() {
         return;
 
     title.textContent = "安装软件";
-    alert.hidden = !current.error;
-    alert.textContent = current.error;
-    alert.classList.toggle("tone-danger", Boolean(current.error));
+    setAlert("security-install-alert", current.error ? { title: current.error, variant: "danger" } : {});
 
     body.replaceChildren();
     const text = document.createElement("p");
@@ -1734,12 +1801,31 @@ function renderDetailList(id, items, emptyText = "暂无详情。") {
     list.append(fragment);
 }
 
-function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
+function buildEmptyState(text) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "pf-v6-c-empty-state pf-m-sm";
+
+    const content = document.createElement("div");
+    content.className = "pf-v6-c-empty-state__content";
+
+    const icon = document.createElement("div");
+    icon.className = "pf-v6-c-empty-state__icon";
+    icon.innerHTML = '<svg class="pf-v6-svg" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true" width="1em" height="1em"><path d="M505 442.7L405.3 343c-4.5-4.5-10.6-7-17-7H372c27.6-35.3 44-79.7 44-128C416 93.1 322.9 0 208 0S0 93.1 0 208s93.1 208 208 208c48.3 0 92.7-16.4 128-44v16.3c0 6.4 2.5 12.5 7 17l99.7 99.7c9.4 9.4 24.6 9.4 33.9 0l28.3-28.3c9.4-9.4 9.4-24.6.1-34zM208 336c-70.7 0-128-57.2-128-128 0-70.7 57.2-128 128-128 70.7 0 128 57.2 128 128 0 70.7-57.2 128-128 128z"/></svg>';
+
+    const title = document.createElement("h4");
+    title.className = "pf-v6-c-title pf-m-lg";
+    title.textContent = text;
+
+    content.append(icon, title);
+    wrapper.append(content);
+    return wrapper;
+}
+
+function renderTable(headId, bodyId, columns, rows, emptyText) {
     const head = document.getElementById(headId);
     const body = document.getElementById(bodyId);
-    const empty = document.getElementById(emptyId);
 
-    if (!head || !body || !empty)
+    if (!head || !body)
         return;
 
     const normalizedRows = rows.map(row => Array.isArray(row) ? { cells: row } : row);
@@ -1767,19 +1853,17 @@ function renderTable(headId, bodyId, emptyId, columns, rows, emptyText) {
     table?.classList.toggle("ct-table-empty", !normalizedRows.length);
 
     if (!normalizedRows.length) {
-        empty.hidden = true;
         const row = document.createElement("tr");
         row.className = "pf-v6-c-table__tr";
         const cell = document.createElement("td");
-        cell.className = "pf-v6-c-table__td empty-message";
+        cell.className = "pf-v6-c-table__td data-table__empty-cell";
         cell.colSpan = columns.length + (hasActions ? 1 : 0);
-        cell.textContent = emptyText;
+        cell.append(buildEmptyState(emptyText));
         row.append(cell);
         body.append(row);
         return;
     }
 
-    empty.hidden = true;
     normalizedRows.forEach(row => {
         const tr = document.createElement("tr");
         tr.className = "pf-v6-c-table__tr";
@@ -1875,7 +1959,7 @@ function renderFirewallRulesTable() {
 
     const start = (currentPage - 1) * pageSize;
     const pageRows = rows.slice(start, start + pageSize);
-    renderTable("firewall-rules-head", "firewall-rules-body", "firewall-rules-empty", columns, pageRows, emptyText);
+    renderTable("firewall-rules-head", "firewall-rules-body", columns, pageRows, emptyText);
     renderFirewallRulePagination(rows.length);
 }
 
@@ -2451,13 +2535,14 @@ const FIREWALL_BACKENDS = {
             return {
                 enable: {
                     args: [ufw, "--force", "enable"],
-                    label: "UFW 启用",
-                    confirm: "这会立即启用 UFW 并应用当前规则。请先确认当前管理连接所需端口已经放行。",
+                    label: "启用 UFW",
+                    confirm: "启用后立即应用当前规则。请先确认当前管理连接所需端口已经放行，否则可能失去连接。",
                 },
                 disable: {
                     args: [ufw, "disable"],
-                    label: "UFW 禁用",
-                    confirm: "禁用 UFW 会移除所有过滤，确定继续吗？",
+                    label: "禁用 UFW",
+                    confirm: "禁用后所有入站过滤立即失效，主机将不再拦截入站流量。",
+                    danger: true,
                 },
                 reload: { args: [ufw, "reload"], label: "UFW 重新加载" },
             };
@@ -3442,7 +3527,7 @@ function renderFirewallStatus(parsed) {
     setText("firewall-backend-label", getFirewallBackend().label);
     setText("firewall-summary-copy", parsed.summary);
     setText("firewall-policy-summary", parsed.policySummary);
-    setBadge("firewall-status-pill", parsed.statusLabel, parsed.tone);
+    setStatusText("firewall-status-pill", parsed.statusLabel, parsed.tone);
     renderDetailList("firewall-details", parsed.details, "没有解析到防火墙详情。");
     state.firewallChains = parsed.chains || [];
     state.firewallPersist = parsed.persist || null;
@@ -3462,7 +3547,7 @@ function renderFirewallError(message) {
     renderFirewallInstallState(false);
     setText("firewall-summary-copy", summarizeOutput(message, false));
     setText("firewall-policy-summary", "状态刷新失败。");
-    setBadge("firewall-status-pill", "刷新失败", "danger");
+    setStatusText("firewall-status-pill", "刷新失败", "danger");
     renderDetailList("firewall-details", [["错误", summarizeOutput(message, false)]], "状态刷新失败。");
     state.firewallChains = [];
     state.firewallPersist = null;
@@ -3484,7 +3569,7 @@ function renderFirewallPermission(parsed) {
     setText("firewall-backend-label", backend.label);
     setText("firewall-summary-copy", parsed.summary);
     setText("firewall-policy-summary", "需要管理员权限才能读取规则。");
-    setBadge("firewall-status-pill", "需要管理员权限", "warning");
+    setStatusText("firewall-status-pill", "需要管理员权限", "warning");
     renderDetailList("firewall-details", parsed.details || [["权限", parsed.summary]], "需要管理员权限。");
     state.firewallChains = [];
     state.firewallPersist = parsed.persist || null;
@@ -3524,7 +3609,7 @@ function renderFail2BanStatus(parsed) {
     setText("fail2ban-service-state", parsed.serviceState);
     setText("fail2ban-service-copy", parsed.summary);
     setText("fail2ban-jail-count", parsed.permission ? "需要管理员权限" : String(parsed.jailCount));
-    setBadge("fail2ban-service-pill", parsed.permission ? "需要管理员权限" : parsed.serviceState, parsed.permission ? "warning" : parsed.tone);
+    setStatusText("fail2ban-service-pill", parsed.permission ? "需要管理员权限" : parsed.serviceState, parsed.permission ? "warning" : parsed.tone);
     renderDetailList("fail2ban-details", parsed.details, "没有解析到 Fail2Ban 总体状态。");
     renderTokenRow("fail2ban-jail-list", parsed.jails, {
         clickable: true,
@@ -3551,7 +3636,7 @@ function renderFail2BanJail(parsed, tone = "success") {
     state.currentJail = parsed.name;
     setText("fail2ban-current-jail", parsed.name);
     setText("fail2ban-current-jail-copy", parsed.summary);
-    setBadge("fail2ban-jail-pill", parsed.name, tone);
+    setStatusText("fail2ban-jail-pill", parsed.name, tone);
     renderMetricCards("fail2ban-jail-metrics", parsed.metrics);
     renderDetailList("fail2ban-jail-details", parsed.details, "没有解析到 jail 详情。");
     renderTokenRow("fail2ban-banned-ips", parsed.bannedIps, {
@@ -3564,7 +3649,7 @@ function clearFail2BanJail(message) {
     state.currentJail = "";
     setText("fail2ban-current-jail", "未选择");
     setText("fail2ban-current-jail-copy", message);
-    setBadge("fail2ban-jail-pill", "未选择");
+    setStatusText("fail2ban-jail-pill", "未选择");
     renderMetricCards("fail2ban-jail-metrics", []);
     renderDetailList("fail2ban-jail-details", [], message);
     renderTokenRow("fail2ban-banned-ips", [], {
@@ -3573,8 +3658,13 @@ function clearFail2BanJail(message) {
 }
 
 function showCommandResult(prefix, label, text, ok = true, summaryOverride = "") {
-    setBadge(`${prefix}-command-label`, label, ok ? "success" : "danger");
-    setCallout(`${prefix}-result-summary`, summaryOverride || summarizeOutput(text, ok), ok ? "success" : "danger");
+    const summary = summaryOverride || summarizeOutput(text, ok);
+    setStatusText(`${prefix}-command-label`, label, ok ? "success" : "danger");
+    setAlert(`${prefix}-result-summary`, {
+        title: summary,
+        detail: text && text !== summary ? text : "",
+        variant: ok ? "success" : "danger",
+    });
 }
 
 async function execute(prefix, label, argsOrScript, options = {}) {
@@ -3617,7 +3707,7 @@ async function refreshFirewallStatus() {
 
         renderFirewallInstallState(false);
         setText("firewall-summary-copy", "正在刷新防火墙状态...");
-        setBadge("firewall-status-pill", "加载中", "loading");
+        setStatusText("firewall-status-pill", "加载中", "loading");
 
         const parsed = await backend.read(FIREWALL_CONTEXT);
         if (parsed.kind === "permission") {
@@ -3644,7 +3734,7 @@ async function refreshFail2BanStatus() {
 
         renderFail2BanInstallState(false);
         setText("fail2ban-service-copy", "正在刷新 Fail2Ban 状态...");
-        setBadge("fail2ban-service-pill", "加载中", "loading");
+        setStatusText("fail2ban-service-pill", "加载中", "loading");
 
         const serviceName = await resolveFail2BanService();
         const [serviceResult, statusResult] = await Promise.all([
@@ -3676,7 +3766,7 @@ async function loadFail2BanJail(jail, options = {}) {
         return;
     }
 
-    setBadge("fail2ban-jail-pill", "加载中", "loading");
+    setStatusText("fail2ban-jail-pill", "加载中", "loading");
     setText("fail2ban-current-jail", jailName);
     setText("fail2ban-current-jail-copy", "正在加载 jail 详情...");
 
@@ -3686,7 +3776,7 @@ async function loadFail2BanJail(jail, options = {}) {
         const summary = permission ? "需要管理员权限才能查询 jail 详情。" : summarizeOutput(result.output, false);
         setText("fail2ban-current-jail", jailName);
         setText("fail2ban-current-jail-copy", summary);
-        setBadge("fail2ban-jail-pill", permission ? "需要管理员权限" : "加载失败", permission ? "warning" : "danger");
+        setStatusText("fail2ban-jail-pill", permission ? "需要管理员权限" : "加载失败", permission ? "warning" : "danger");
         renderMetricCards("fail2ban-jail-metrics", []);
         renderDetailList("fail2ban-jail-details", [["错误", summary]], "jail 查询失败。");
         renderTokenRow("fail2ban-banned-ips", [], {
@@ -3843,9 +3933,28 @@ function fillJailInputs(jail) {
 
 function updateFirewallActionBar() {
     const backend = getFirewallBackend();
+    const writable = isWritable();
+
+    // A backend that cannot do something hides the control; a session that is
+    // not admin keeps it visible but disabled.
+    const applyPermission = button => {
+        if (!button)
+            return;
+        button.disabled = !writable;
+        if (writable)
+            button.removeAttribute("title");
+        else
+            button.title = ADMIN_REQUIRED_HINT;
+    };
 
     const toggle = (id, capability) => {
-        setHidden(id, !canFirewall(capability));
+        const button = getElement(id);
+        if (!button)
+            return;
+        const supported = backend.capabilities.includes(capability) && !state.firewallReadOnly;
+        button.hidden = !supported;
+        if (supported)
+            applyPermission(button);
     };
 
     toggle("firewall-enable-button", "enable");
@@ -3860,10 +3969,12 @@ function updateFirewallActionBar() {
     const persistButton = getElement("firewall-persist-button");
     if (persistButton) {
         const persistState = state.firewallPersist?.state;
-        const needsPersist = canFirewall("persist") &&
+        const needsPersist = backend.capabilities.includes("persist") && !state.firewallReadOnly &&
             !state.firewallPersist?.blocked &&
             persistState && persistState !== "saved" && persistState !== "managed";
         persistButton.hidden = !needsPersist;
+        if (needsPersist)
+            applyPermission(persistButton);
     }
 }
 
@@ -3958,8 +4069,7 @@ function renderFirewallDialog() {
     copy.hidden = !hint;
     copy.textContent = hint;
     form.hidden = false;
-    alert.hidden = !current.error;
-    alert.textContent = current.error;
+    setAlert("firewall-modal-alert", current.error ? { title: current.error, variant: "danger" } : {});
     submit.textContent = current.busy ? "执行中..." : "应用";
     submit.disabled = current.busy;
     cancel.disabled = current.busy;
@@ -3991,10 +4101,43 @@ function closeFirewallDialog() {
     renderFirewallDialog();
 }
 
-function confirmDestructiveAction(message) {
-    return new Promise(resolve => {
-        const confirmed = window.confirm(message);
+function renderConfirmDialog() {
+    const dialog = getElement("security-confirm-dialog");
+    const title = getElement("security-confirm-title");
+    const submit = getElement("security-confirm-submit");
+    const cancel = getElement("security-confirm-cancel");
+
+    if (!dialog || !title || !submit || !cancel)
+        return;
+
+    const current = state.confirmDialog;
+    dialog.hidden = !current.open;
+    if (!current.open)
+        return;
+
+    title.textContent = current.title;
+    submit.textContent = current.confirmLabel;
+    submit.className = `pf-v6-c-button pf-m-${current.variant}`;
+    setAlert("security-confirm-alert", current.message ? { title: current.message, variant: "warning" } : {});
+}
+
+function settleConfirmDialog(confirmed) {
+    const { resolve } = state.confirmDialog;
+    state.confirmDialog = { open: false, title: "", message: "", confirmLabel: "确认", variant: "danger", resolve: null };
+    renderConfirmDialog();
+    if (resolve)
         resolve(confirmed);
+}
+
+// Standard Cockpit confirmation: Modal + inline warning Alert + danger primary
+// button on the left, link Cancel on the right. Deliberately not window.confirm.
+function confirmAction({ title, message = "", confirmLabel = "确认", variant = "danger" }) {
+    if (state.confirmDialog.open)
+        settleConfirmDialog(false);
+
+    return new Promise(resolve => {
+        state.confirmDialog = { open: true, title, message, confirmLabel, variant, resolve };
+        renderConfirmDialog();
     });
 }
 
@@ -4007,9 +4150,14 @@ async function deleteFirewallRule(rule) {
         return;
 
     const managerWarning = state.firewallManager
-        ? `\n\n注意：${state.firewallManager} 正在管理本机规则，这次改动可能在它重新加载时被覆盖。`
+        ? ` ${state.firewallManager} 正在管理本机规则，改动可能在它重新加载时被覆盖。`
         : "";
-    const confirmed = await confirmDestructiveAction(`确定要删除${rule.description || rule.value} 吗？此操作不可撤销。${managerWarning}`);
+    const confirmed = await confirmAction({
+        title: `删除 ${rule.description || rule.value}`,
+        message: `删除后规则立即失效，且不可撤销。${managerWarning}`,
+        confirmLabel: "删除",
+        variant: "danger",
+    });
     if (!confirmed)
         return;
 
@@ -4111,8 +4259,16 @@ async function handleQuickAction(action) {
     if (!step)
         return;
 
-    if (step.confirm && !(await confirmDestructiveAction(step.confirm)))
-        return;
+    if (step.confirm) {
+        const confirmed = await confirmAction({
+            title: step.label,
+            message: step.confirm,
+            confirmLabel: "继续",
+            variant: step.danger ? "danger" : "primary",
+        });
+        if (!confirmed)
+            return;
+    }
 
     const steps = step.steps || [{ args: step.args, label: step.label }];
     const result = await executeSteps("firewall", steps);
@@ -4193,6 +4349,12 @@ function bindEvents() {
         if (event.target?.id === "security-auth-dialog")
             closeSuperuserDialog();
     });
+    document.getElementById("security-confirm-submit")?.addEventListener("click", () => settleConfirmDialog(true));
+    document.getElementById("security-confirm-cancel")?.addEventListener("click", () => settleConfirmDialog(false));
+    document.getElementById("security-confirm-dialog")?.addEventListener("click", event => {
+        if (event.target?.id === "security-confirm-dialog")
+            settleConfirmDialog(false);
+    });
     document.getElementById("firewall-rules-prev")?.addEventListener("click", () => {
         state.firewallRules.page = Math.max(1, state.firewallRules.page - 1);
         renderFirewallRulesTable();
@@ -4245,6 +4407,11 @@ function bindEvents() {
     });
 
     document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && state.confirmDialog.open) {
+            settleConfirmDialog(false);
+            return;
+        }
+
         if (event.key === "Escape" && state.firewallDialog.open) {
             closeFirewallDialog();
             return;
@@ -4269,6 +4436,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderFirewallDialog();
     renderInstallDialog();
     renderSuperuserDialog();
+    renderConfirmDialog();
     renderAccessState();
     await initFirewallBackends();
 });
